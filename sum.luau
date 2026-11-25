@@ -3134,7 +3134,7 @@ _G.WaveLite_CamLock_Toggle = function(forceState)
 	end
 end
 function __WaveLiteSetupSilent()
-	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0, target=nil, cache=nil, targetAt=0, redirected=0, observed=0, hooked=false, updating=false, mouse=LocalPlayer:GetMouse(), player=nil}
+	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0, target=nil, cache=nil, targetAt=0, redirected=0, observed=0, hooked=false, updating=false, mouse=LocalPlayer:GetMouse(), player=nil, lastMethod=nil, lastReject=nil}
 	if type(_G.WaveLiteSilentHookContext)=="table" then
 		_G.WaveLiteSilentHookContext.active = false
 		_G.WaveLiteSilentHookContext.enabled = false
@@ -3260,12 +3260,11 @@ function __WaveLiteSetupSilent()
 		if not ok then silent.cache=nil end
 	end
 	local function canRedirect()
+		-- Match the supplied known-working hook gate exactly. Do not re-resolve the
+		-- target model here: some games expose a separate combat model from Player.Character.
 		if not silent.active or not silent.enabled or silent.updating then return nil end
 		local cache=silent.cache
 		if not cache or not cache.part or not cache.part.Parent or os.clock()-cache.stamp>0.2 then return nil end
-		if not goodTarget(cache.player) then return nil end
-		local liveModel=getStandardCombatModel(cache.player) or getEspCharacter(cache.player)
-		if liveModel ~= cache.model or not cache.part:IsDescendantOf(cache.model) then return nil end
 		if type(checkcaller)=="function" then
 			local ok,own=pcall(checkcaller)
 			if ok and own then return nil end
@@ -3274,6 +3273,7 @@ function __WaveLiteSetupSilent()
 	end
 	local function validateOriginalArguments(method,args)
 		if method=="Raycast" then
+			-- Preserve the exact argument contract from the supplied working build.
 			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3" and typeof(args[3])=="RaycastParams"
 		end
 		if method=="FindPartOnRay" or method=="findPartOnRay" then
@@ -3284,50 +3284,13 @@ function __WaveLiteSetupSilent()
 		end
 		return false
 	end
-	-- Silent Aim must only redirect a likely weapon/aim ray. The old implementation
-	-- redirected every workspace Raycast while enabled, including raycasts used by
-	-- Roblox's camera collision/zoom controller. That can pin or distort the camera.
-	local function isCameraControllerCall()
-		if type(getcallingscript) ~= "function" then return false end
-		local ok, caller = pcall(getcallingscript)
-		if not ok or not caller then return false end
-		local current = caller
-		for _ = 1, 8 do
-			if not current then break end
-			local name = string.lower(tostring(current.Name or ""))
-			if name:find("camera", 1, true) or name:find("popper", 1, true)
-				or name:find("zoomcontroller", 1, true) then
-				return true
-			end
-			current = current.Parent
-		end
-		return false
-	end
-
-	local function getRedirectedDirection(origin, originalDirection, position)
-		if typeof(origin) ~= "Vector3" or typeof(originalDirection) ~= "Vector3" then return nil end
-		local rayLength = originalDirection.Magnitude
-		if rayLength <= 0.05 then return nil end
-		local targetDirection = position - origin
-		if targetDirection.Magnitude <= 0.001 then return nil end
-
-		local camera = workspace.CurrentCamera
-		if not camera then return nil end
-		local viewport = camera.ViewportSize
-		local radius = math.max(1, tonumber(State.Sliders.SilentFovRadius) or 150)
-		local halfHeight = math.max(1, viewport.Y * 0.5)
-		local halfFov = math.rad(camera.FieldOfView * 0.5)
-		local fovAngle = math.atan((radius / halfHeight) * math.tan(halfFov))
-		local allowedAngle = math.clamp(fovAngle + math.rad(7), math.rad(12), math.rad(38))
-
-		-- Only redirect rays already travelling roughly toward the selected target.
-		-- Preserve the original ray length so camera/interaction queries cannot become
-		-- unexpectedly long weapon-style rays.
-		local originalUnit = originalDirection.Unit
-		local targetUnit = targetDirection.Unit
-		if originalUnit:Dot(targetUnit) < math.cos(allowedAngle) then return nil end
-		if originalUnit:Dot(camera.CFrame.LookVector) < 0.15 then return nil end
-		return targetUnit * rayLength
+	-- This is the direct redirection path from the supplied last-working build.
+	-- Do not add camera-script or angle heuristics here: those gates caused valid
+	-- weapon raycasts to pass through unchanged in the newer build.
+	local function getOriginalDirection(origin,position)
+		local diff=position-origin
+		if diff.Magnitude<=0.001 then return nil end
+		return diff.Unit*1000
 	end
 	local oldNamecall
 	if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
@@ -3336,21 +3299,31 @@ function __WaveLiteSetupSilent()
 			local method=getnamecallmethod()
 			local selected=State.SilentMethod
 			if method~=selected and not (selected=="FindPartOnRay" and method=="findPartOnRay") then return oldNamecall(self,...) end
-			if isCameraControllerCall() then return oldNamecall(self,...) end
+			silent.observed += 1
+			silent.lastMethod = method
 			local cache=canRedirect()
-			if not cache then return oldNamecall(self,...) end
+			if not cache then
+				silent.lastReject = "No fresh target cache"
+				return oldNamecall(self,...)
+			end
 			local args=table.pack(...)
-			if not validateOriginalArguments(method,args) then return oldNamecall(self,...) end
+			if not validateOriginalArguments(method,args) then
+				silent.lastReject = "Unexpected arguments for " .. tostring(method)
+				return oldNamecall(self,...)
+			end
 			local origin=method=="Raycast" and args[1] or args[1].Origin
-			local originalDirection=method=="Raycast" and args[2] or args[1].Direction
-			local newDirection=getRedirectedDirection(origin,originalDirection,cache.position)
-			if not newDirection then return oldNamecall(self,...) end
+			local newDirection=getOriginalDirection(origin,cache.position)
+			if not newDirection then
+				silent.lastReject = "Target too close to ray origin"
+				return oldNamecall(self,...)
+			end
 			if method=="Raycast" then
 				args[2]=newDirection
 			else
 				args[1]=Ray.new(origin,newDirection)
 			end
 			silent.redirected+=1
+			silent.lastReject=nil
 			return oldNamecall(self,table.unpack(args,1,args.n))
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
@@ -3408,7 +3381,16 @@ function __WaveLiteSetupSilent()
 		end
 	end)
 	_G.WaveLiteSilentStatus=function()
-		return {HookReady=silent.hooked,LastMethod=State.SilentMethod,MethodConfidence="Manual",Observed=0,Redirected=silent.redirected,Target=silent.cache and silent.cache.player.Name or nil}
+		return {
+			HookReady=silent.hooked,
+			Enabled=silent.enabled,
+			Method=State.SilentMethod,
+			LastMethod=silent.lastMethod,
+			Observed=silent.observed,
+			Redirected=silent.redirected,
+			LastReject=silent.lastReject,
+			Target=silent.player and silent.player.Name or nil,
+		}
 	end
 	connect(ScreenGui.AncestryChanged,function(_,parent)
 		if parent then return end
