@@ -13,10 +13,8 @@ local VirtualUser      = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- global connections (UserInputService etc). Unload UI disconnects all of these.
 local Connections = {}
 
------------------------------------------------------------------- cleanup
 local WaveGuiName = "Wave1.5"
 local function destroyIfExists(parent, name)
 	pcall(function()
@@ -35,7 +33,6 @@ pcall(function()
 	if pg then cleanupWaveGui(pg) end
 end)
 
------------------------------------------------------------------- state (UI values only)
 local State = {
 	Sliders = {
 		Prediction = 0.007, Smoothness = 2.50,
@@ -52,7 +49,7 @@ local State = {
 		TeamCheck = true, WallCheck = false, DeadCheck = true, StickyAim = false, TargetUI = false,
 		Camlock = false, Silent = false, AntiAfk = false, InfJump = false, AntiSeat = false,
 		AutoPickup = false, Spinbot = false, BoxCorners = false,
-		-- settings page
+
 		UIBlur = false, UIShadow = true, ArrayList = true, AutoLoad = false, CurrentSong = false,
 	},
 	Keybinds = { CamLockToggle = nil, SilentToggle = nil, FlyToggle = nil, TweenClickTpToggle = nil, MenuToggle = "Insert" },
@@ -71,7 +68,6 @@ local SliderConfig = {
 local GuiParent = CoreGui
 pcall(function() if gethui then GuiParent = gethui() end end)
 
------------------------------------------------------------------- site assets (logo / theme icons)
 local SiteRoot = "https://shimmering-babka-52d2f9.netlify.app"
 local SiteAssets = {
 	logo = "logo.png",
@@ -114,7 +110,6 @@ local function getSiteAsset(name)
 	return nil
 end
 
--- Resolves a Decal asset id to its actual image texture (used for the dropdown chevron)
 local function resolveDecalTexture(assetId)
 	local function normalize(reference)
 		if type(reference) ~= "string" or reference == "" then return nil end
@@ -168,7 +163,6 @@ local function resolveDecalTexture(assetId)
 	return nil
 end
 
------------------------------------------------------------------- themes
 local Themes = {
 	dark = {
 		Background = Color3.fromRGB(22,22,26), Panel = Color3.fromRGB(28,28,33), Body = Color3.fromRGB(24,24,29),
@@ -187,7 +181,7 @@ local Themes = {
 		Scroll = Color3.fromRGB(145,150,163), BlurBranch = Color3.fromRGB(248,249,252), BlurPill = Color3.fromRGB(242,245,250),
 	},
 }
--- Toggle / slider palette. SliderFill is the accent color (toggles and sliders pick it up).
+
 Themes.dark.Highlight    = Color3.fromRGB(255,255,255)
 Themes.light.Highlight   = Color3.fromRGB(0,0,0)
 Themes.dark.Track        = Color3.fromRGB(51,51,56)
@@ -197,21 +191,18 @@ Themes.dark.ToggleKnobOn = Color3.fromRGB(255,255,255)
 Themes.light.SliderFill   = Color3.fromRGB(40,42,48)
 Themes.light.ToggleOff    = Color3.fromRGB(255,255,255)
 Themes.light.ToggleKnobOn = Color3.fromRGB(255,255,255)
--- dropdown chevron tint
+
 Themes.dark.Chevron  = Color3.fromRGB(190,192,200)
 Themes.light.Chevron = Color3.fromRGB(96,101,112)
--- wave logo / header icon / settings icon tint
+
 Themes.dark.Logo  = Color3.fromRGB(255,255,255)
 Themes.light.Logo = Color3.fromRGB(25,25,30)
 
--- Presets. Each preset has a dark and a light variant: Accent (toggle on-pill, slider fill, logo, icons),
--- Track (toggle off-pill / on-dot, slider track) and, for dark, an optional Background. Outlines, rules,
--- scroll bars, chevrons and dropdown/keybind boxes are derived from the accent. "None" is the base palette.
 local buildTheme
 local PresetNames = { "None", "Dracula", "Chocolate", "Nord", "Ocean", "Rose", "Light" }
 local PresetSet = {}
 for _, n in ipairs(PresetNames) do PresetSet[n] = true end
-local BackdropSet = { None = true, Daydream = true, ["Last.fm"] = true } -- valid backdrop preset names
+local BackdropSet = { None = true, Daydream = true, ["Last.fm"] = true }
 do
 local function C(r, g, b) return Color3.fromRGB(r, g, b) end
 local BaseThemes = {}
@@ -242,13 +233,11 @@ local Presets = {
 		light = { Accent = C(190,60,100),  Track = C(215,190,198) },
 	},
 }
--- Backdrop presets (Settings > Appearance > Presets) are a full look, not just an image: while one is active its
--- palette replaces the Theme dropdown colours (dark mode only). Accent = toggle on-pill, slider fill, logo, settings
--- icon; Track = toggle off-pill / on-dot and slider track. Lines, scroll bars, chevrons and boxes follow the accent.
+
 local BackdropPalettes = {
-	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) }, -- sunset leaves over dusk purple
+	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) },
 }
--- rebuilds Themes[mode] in place from the base palette + the selected preset (State.Theme)
+
 buildTheme = function(mode)
 	local t, base = Themes[mode], BaseThemes[mode]
 	for k, v in pairs(base) do t[k] = v end
@@ -291,7 +280,7 @@ local themedToggles  = {}
 local keybindSyncs   = {}
 local choiceSyncs    = {}
 local arrayListLabels = {}
-local ToggleCallbacks = {} -- [stateName] = function(newValue), used by the settings toggles
+local ToggleCallbacks = {}
 local TemporarilyDisabledToggles = {
 	TargetUI = true,
 	AutoPickup = true,
@@ -314,7 +303,7 @@ local function nextObjectName()
 	objectNameCounter += 1
 	return string.format("x%02da", objectNameCounter)
 end
--- Parent is assigned last so properties aren't set on an already-parented instance
+
 local function make(className, props)
 	local obj = Instance.new(className)
 	local parent
@@ -330,8 +319,6 @@ local function tween(obj, t, props)
 	TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
 end
 
--- Only one dropdown is open at a time. Each dropdown registers its close function here while open.
--- objects of any open/closed dropdown popup the mouse is currently over (rows behind must not highlight)
 local dropdownHovered = {}
 local function isOverDropdown()
 	return next(dropdownHovered) ~= nil
@@ -343,14 +330,11 @@ local function closeDropdown()
 	if close then pcall(close) end
 end
 
--- After a keybind is captured from a mouse button, the click that finished the capture must not
--- also press whatever is under the cursor (toggle, button, slider...). Controls check inputBlocked().
 local keybindClickBlockUntil = 0
 local function inputBlocked()
 	return os.clock() < keybindClickBlockUntil
 end
 
------------------------------------------------------------------- helpers
 local function inputToKeyName(input)
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		local name = input.KeyCode.Name
@@ -439,7 +423,7 @@ local function applyTheme(themeName, animate)
 	end
 	if refreshArrayList then refreshArrayList() end
 end
------------------------------------------------------------------- root gui
+
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = WaveGuiName
 ScreenGui.Parent = GuiParent
@@ -454,24 +438,17 @@ local HeaderHeight, BottomHeight, BodyPadding = 38, 24, 8
 local PanelWidth = MainWidth - BodyPadding * 2
 local SideHeight = MainHeight - HeaderHeight - BottomHeight - 12
 local RowHeight, SliderRowHeight = 22, 32
--- Spacing system: every item inside a section (row, slider, keybind, dropdown, nested section,
--- and the first row under a header) is separated by RowGap. Top-level sections are separated by SectionGap.
--- Nothing adds trailing space after a section's last item, so open/closed or slider/toggle endings never change gaps.
--- SectionGap is the gap between every category, including Esp -> Player (EspBottomGap stays 0 so the
--- Box Esp sub-category ends with the same spacing as any other category).
+
 local RowGap, SectionGap = 4, 5
 local EspBottomGap = 0
--- Section header divider line: even header heights put the line exactly on the header's centerline;
--- RuleNudge shifts it (in px, +down) if you want to fine-tune it against the title text.
+
 local RuleNudge = 0
 local ToggleWidth, ToggleHeight = 30, 16
--- Background transparency shared by the dropdown-style controls (dropdown boxes, keybind boxes, text boxes, buttons).
--- 0 = solid, 1 = invisible. Higher = more see-through / glassy, lower = more solid.
+
 local ControlTransparency = 0.15
 
--- Dropdown sizing: every dropdown in the UI uses this one width, so long option names must be abbreviated.
 local DropdownWidth, DropdownHeaderHeight, DropdownOptionHeight = 90, 18, 18
--- dropdown lists taller than this many options scroll
+
 local MaxDropdownOptions = 8
 
 local Main = make("Frame", {
@@ -483,7 +460,7 @@ registerThemed(Main, "BackgroundColor3", "Background")
 make("UICorner", { Parent = Main, CornerRadius = UDim.new(0, 4) })
 local MainStroke = make("UIStroke", { Parent = Main, Color = Theme.Border, Thickness = 1 })
 registerThemed(MainStroke, "Color", "Border")
--- UI Shadow toggle (settings) fades this object: on = ShadowOnTransparency, off = fully transparent
+
 local ShadowObj
 local ShadowOnTransparency = 0.46
 pcall(function()
@@ -499,24 +476,17 @@ pcall(function()
 	ShadowObj = shadow
 end)
 
------------------------------------------------------------------- preset backdrop (image behind the menu)
--- Picked from Settings > Appearance > Presets. The image is an un-blurred picture inside the window, under every
--- control, with a tint + inner shadow on top so it reads as an image sitting behind a glass pane.
--- (The old inset "pane" outline was removed: it drew a second, smaller frame inside the real UI.)
 local setBackdropPreset, setLastfmUser, restartLastfmPolling, refreshLastfmPolling, songTrackHook
 do
-	-- images are served by the Netlify site (assets/<name>_ui.jpg, 1024x1169 = the menu's proportions)
+
 	local PresetSiteRoot = "https://bright-halva-7d5837.netlify.app"
 	local PresetFiles = { Daydream = "daydream_ui.jpg" }
-	local PresetCacheTag = "v1" -- bump this if you ever replace an image on the site (forces a re-download)
+	local PresetCacheTag = "v1"
 
-	-- look & feel knobs
-	local ImageBleed = 0           -- the image is this many px larger than the window on every side (0 = exact fit, no movement)
-	local TintTransparency = 0.40  -- how much of the theme colour sits over the image (higher = brighter image)
-	local EdgeShadow = 40          -- px depth of the inner shadow around the edges (the "recessed glass box" look)
+	local ImageBleed = 0
+	local TintTransparency = 0.40
+	local EdgeShadow = 40
 
-	-- backdrop lives INSIDE Main, under every control (ZIndex 0; everything else is >= 1).
-	-- A CanvasGroup + UICorner clips it to Main's rounded corners and lets the whole thing fade as one piece.
 	local group = make("CanvasGroup", {
 		Parent = Main, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
 		ZIndex = 0, GroupTransparency = 1, Visible = false, Active = false,
@@ -529,14 +499,12 @@ do
 		ScaleType = Enum.ScaleType.Crop, ZIndex = 1,
 	})
 
-	-- theme-coloured tint (dark in dark mode, light in light mode) keeps text readable
 	local tint = make("Frame", {
 		Parent = group, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Body,
 		BackgroundTransparency = TintTransparency, BorderSizePixel = 0, ZIndex = 2,
 	})
-	registerThemed(tint, "BackgroundColor3", "Body") -- "Body" is not touched by the blur-glass code
+	registerThemed(tint, "BackgroundColor3", "Body")
 
-	-- soft sheen across the top, like light catching the glass
 	local sheen = make("Frame", {
 		Parent = group, Size = UDim2.new(1, 0, 0.45, 0), BackgroundColor3 = Color3.new(1, 1, 1),
 		BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 3,
@@ -546,7 +514,6 @@ do
 		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.92), NumberSequenceKeypoint.new(1, 1) }),
 	})
 
-	-- inner shadow on all four edges: the image reads as sitting pushed back inside the frame
 	local function edge(size, anchor, position, rotation, vertical)
 		local f = make("Frame", {
 			Parent = group, AnchorPoint = anchor, Position = position, BackgroundColor3 = Color3.new(0, 0, 0),
@@ -560,12 +527,11 @@ do
 			}),
 		})
 	end
-	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 90, true)    -- top
-	edge(EdgeShadow, Vector2.new(0, 1), UDim2.fromScale(0, 1), 270, true)   -- bottom
-	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 0, false)    -- left
-	edge(EdgeShadow, Vector2.new(1, 0), UDim2.fromScale(1, 0), 180, false)  -- right
+	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 90, true)
+	edge(EdgeShadow, Vector2.new(0, 1), UDim2.fromScale(0, 1), 270, true)
+	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 0, false)
+	edge(EdgeShadow, Vector2.new(1, 0), UDim2.fromScale(1, 0), 180, false)
 
-	------------------------------------------------------------- download + cache (needs writefile + getcustomasset)
 	local assetCache = {}
 	local function loadAsset(name)
 		if assetCache[name] then return assetCache[name] end
@@ -598,13 +564,12 @@ do
 			end
 		end
 		if not body then pcall(function() body = game:HttpGet(url) end) end
-		-- must be a real JPEG (starts FF D8 FF), not an error page
+
 		if type(body) ~= "string" or #body < 1000 or body:sub(1, 3) ~= "\255\216\255" then return nil end
 		if not pcall(writefile, path, body) then return nil end
 		return register()
 	end
 
-	------------------------------------------------------------- show / hide with a fade
 	local token = 0
 	local fadeTween
 	local function fadeTo(value, duration)
@@ -614,17 +579,13 @@ do
 		return fadeTween
 	end
 
-	------------------------------------------------------------- Last.fm backdrop (blurred album art of the current song)
-	-- Settings > Appearance > Presets > Last.fm. Polls the Last.fm scrobble feed for the username typed under the
-	-- preset, downloads the album art through an image proxy that pre-blurs it (same trick as the music widget:
-	-- real UI blur isn't possible yet, so the blur is baked into the picture) and crossfades it in as the backdrop.
 	local LastfmEndpoint = "https://lastfm-last-played.biancarosa.com.br/"
 	local LastfmPollSeconds = 10
-	local LastfmBlur = 6                -- blur strength baked into the picture (0 = sharp, higher = softer; 6 = subtle)
-	local LastfmSaturation = 1.45       -- colour boost so the blurred art stays vivid
-	local LastfmOnlyWhenPlaying = false -- true = only change the art while a song is actually playing (otherwise the last played song stays)
-	local LastfmFadeSeconds = 0.9       -- crossfade between songs
-	local LastfmTint = TintTransparency -- dark overlay over the art, same as Daydream (lower number = darker)
+	local LastfmBlur = 6
+	local LastfmSaturation = 1.45
+	local LastfmOnlyWhenPlaying = false
+	local LastfmFadeSeconds = 0.9
+	local LastfmTint = TintTransparency
 
 	local lfA = make("ImageLabel", {
 		Parent = group, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = "",
@@ -635,9 +596,9 @@ do
 		ImageTransparency = 1, ScaleType = Enum.ScaleType.Crop, ZIndex = 0,
 	})
 	local lfFront = lfA
-	local lfAsset          -- the art currently chosen for the backdrop (this session only)
-	local lfKey = ""       -- "name\0artist" of the song that art belongs to
-	local lfSession = 0    -- bumped to cancel the polling loop
+	local lfAsset
+	local lfKey = ""
+	local lfSession = 0
 	local lfFiles = {}
 	local lfFading = false
 	local lfQueued
@@ -660,7 +621,7 @@ do
 		value = value:gsub("&amp;", "&"):gsub("&#38;", "&")
 		if value:sub(1, 2) == "//" then value = "https:" .. value end
 		value = value:gsub("^http://", "https://")
-		-- the grey star Last.fm shows when a song has no art is not a cover
+
 		if not value:match("^https://") or value:find("2a96cbd8b46e442fc41c2b86b821562f", 1, true) then return "" end
 		return value
 	end
@@ -668,7 +629,7 @@ do
 		return "https://wsrv.nl/?url=" .. HttpService:UrlEncode(url) .. "&w=" .. MainWidth .. "&h=" .. MainHeight
 			.. "&fit=cover&blur=" .. LastfmBlur .. "&sat=" .. LastfmSaturation .. "&output=png"
 	end
-	-- downloads an image, saves it to the workspace folder and returns a usable asset string
+
 	local function lfAssetFromUrl(url)
 		if type(writefile) ~= "function" or type(getcustomasset) ~= "function" then return nil end
 		local body = lfGet(url)
@@ -704,7 +665,7 @@ do
 		end
 		return selected
 	end
-	-- last resort: read the cover off the song's Last.fm page
+
 	local function lfPageImage(page)
 		if type(page) ~= "string" or not page:match("^https://www%.last%.fm/") then return "" end
 		local html = lfGet(page)
@@ -737,12 +698,11 @@ do
 		}
 	end
 
-	-- puts a new picture on screen: first one fades the backdrop in, later ones crossfade over the old one
 	local showLfArt
 	showLfArt = function(asset)
 		lfAsset = asset
 		if State.Preset ~= "Last.fm" then return end
-		if lfFading then lfQueued = asset return end -- let the running crossfade finish first
+		if lfFading then lfQueued = asset return end
 		local outgoing = lfFront
 		local incoming = (lfFront == lfA) and lfB or lfA
 		incoming.Image = asset
@@ -764,7 +724,7 @@ do
 		else
 			outgoing.ImageTransparency = 1
 			incoming.ImageTransparency = 0
-			token += 1 -- cancels any pending hide
+			token += 1
 			group.Visible = true
 			fadeTo(0, 0.35)
 		end
@@ -781,7 +741,7 @@ do
 		lfKey = track.key
 		showLfArt(asset)
 	end
-	-- one poller feeds both the Last.fm backdrop (preset) and the Current Song text in the header
+
 	local lfRunning = false
 	local function lfNeeded()
 		return State.LastfmUser ~= "" and (State.Preset == "Last.fm" or State.Toggles.CurrentSong == true)
@@ -790,7 +750,7 @@ do
 		lfSession += 1
 		lfRunning = false
 	end
-	local function startLastfm() -- (re)starts with an immediate poll
+	local function startLastfm()
 		lfSession += 1
 		local mine = lfSession
 		lfRunning = lfNeeded()
@@ -812,7 +772,7 @@ do
 		end)
 	end
 	restartLastfmPolling = startLastfm
-	refreshLastfmPolling = function() -- starts / stops depending on whether anything still needs the feed
+	refreshLastfmPolling = function()
 		if lfNeeded() then
 			if not lfRunning then startLastfm() end
 		elseif lfRunning then
@@ -827,7 +787,6 @@ do
 		end
 	end)
 
-	-- called when the username is saved (name) or reset (empty)
 	setLastfmUser = function(name)
 		name = tostring(name or "")
 		State.LastfmUser = name
@@ -854,7 +813,7 @@ do
 		buildTheme("dark")
 		buildTheme("light")
 		applyTheme(currentThemeName, true)
-		for _, sync in ipairs(choiceSyncs) do pcall(sync) end -- dropdown labels + the Last.fm username row
+		for _, sync in ipairs(choiceSyncs) do pcall(sync) end
 		token += 1
 		local mine = token
 		if name == "Last.fm" then startLastfm() else refreshLastfmPolling() end
@@ -897,7 +856,7 @@ do
 				fadeTo(1, 0.2)
 				return
 			end
-			-- already showing something else? fade it out first, then swap
+
 			if group.Visible and group.GroupTransparency < 0.95 and image.Image ~= asset then
 				fadeTo(1, 0.15).Completed:Wait()
 				if mine ~= token then return end
@@ -909,12 +868,9 @@ do
 			fadeTo(0, 0.35)
 		end)
 	end
-	
+
 end
 
------------------------------------------------------------------- background blur / glass (visual only)
--- Off by default (State.Toggles.UIBlur). Enable creates the depth-of-field effect + the two glass parts and binds
--- the render step; Disable destroys all of it and sweeps the world for leftovers. Fix does a full off/on.
 local BlurController = (function()
 	local BlurRenderName = "Wave1.5 Blur Render"
 	local BlurEffectName = "Wave1.5 Blur"
@@ -989,7 +945,7 @@ local BlurController = (function()
 		if not obj or not obj.Parent or not obj:IsA("GuiObject") then return end
 		TweenService:Create(obj, TweenInfo.new(themeDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = transparency }):Play()
 	end
-	-- blur on: see-through glass. blur off: solid.
+
 	local function applyGlass()
 		for _, e in ipairs(themedObjects) do
 			if e.prop == "BackgroundColor3" then
@@ -1051,7 +1007,6 @@ local BlurController = (function()
 		applyGlass()
 	end
 
-	-- full reset: everything off and swept, then back on if the toggle is on
 	local function Fix()
 		Disable()
 		sweepWorld()
@@ -1080,8 +1035,6 @@ local BlurController = (function()
 	}
 end)()
 
--- Background Blur only runs while no backdrop preset is active (the preset image covers the window, so the
--- blur would be invisible); the toggle keeps its value and resumes when the preset is turned off
 local function syncBlur()
 	local want = State.Toggles.UIBlur and State.Preset == "None"
 	if want and not BlurController.IsEnabled() then
@@ -1101,7 +1054,6 @@ ToggleCallbacks.UIShadow = function(on)
 	end
 end
 
------------------------------------------------------------------- header
 local Header, syncLogoVisibility, syncBlurButton
 do
 Header = make("Frame", {
@@ -1149,19 +1101,16 @@ task.spawn(function()
 	SiteLogoAsset = getSiteAsset("logo")
 	if HeaderLogoImage and HeaderLogoImage.Parent then syncLogoVisibility() end
 end)
--- kept under the old name: re-tints the logo after a theme change
+
 syncBlurButton = function(animate) syncLogoVisibility(animate) end
 
--- Current Song (Settings > Appearance): title with the artist under it (artist left-aligned to the start of the
--- title), centred between the logo and the right edge with equal space on each side. A long title scrolls left like Spotify: hold, scroll to the end, hold,
--- fade out, fade back in from the start, repeat.
 do
-	local SongSideMargin = 48        -- gap from each window edge (the logo ends at x = 33)
-	local SongScrollSpeed = 28       -- px per second
-	local SongHoldStart = 2          -- seconds still at the start before scrolling
-	local SongHoldEnd = 1            -- seconds still at the end before fading
+	local SongSideMargin = 48
+	local SongScrollSpeed = 28
+	local SongHoldStart = 2
+	local SongHoldEnd = 1
 	local SongFadeTime = 0.3
-	local SongOnlyWhenPlaying = true -- false = keep showing the last played song when nothing is playing
+	local SongOnlyWhenPlaying = true
 	local SongAreaWidth = MainWidth - SongSideMargin * 2
 
 	local SongGroup = make("CanvasGroup", {
@@ -1194,13 +1143,13 @@ do
 		t:Play()
 		t.Completed:Wait()
 	end
-	-- centres a short title, or starts the scroll loop for one that doesn't fit
+
 	local function layoutTitle()
 		stopScroll()
 		local mine = scrollToken
 		local width = math.ceil(TextService:GetTextSize(SongTitle.Text, SongTitle.TextSize, SongTitle.Font, Vector2.new(10000, 50)).X) + 2
 		local distance = width - SongAreaWidth
-		-- the artist is left-aligned to wherever the title starts (centred title = its left edge, scrolling title = 0)
+
 		local titleX = distance <= 0 and math.max(0, math.floor((SongAreaWidth - (width - 2)) / 2 + 0.5)) or 0
 		SongArtist.Position = UDim2.fromOffset(titleX, 20)
 		SongArtist.Size = UDim2.new(1, -titleX, 0, 13)
@@ -1254,7 +1203,7 @@ do
 			fadeGroup(0, 0.3)
 		end
 		if SongGroup.Visible and SongGroup.GroupTransparency < 0.95 then
-			stopScroll() -- a new song while one is showing: fade the old one out, then swap
+			stopScroll()
 			task.spawn(function()
 				fadeGroup(1, 0.18).Completed:Wait()
 				if mine ~= songSwap then return end
@@ -1274,17 +1223,16 @@ do
 end
 end
 
------------------------------------------------------------------- body / footer
 local Body = make("Frame", {
 	Parent = Main, Size = UDim2.new(1, 0, 1, -(HeaderHeight + BottomHeight)),
 	Position = UDim2.fromOffset(0, HeaderHeight), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
--- not clipped, so the scroll bars can sit out in the side margins
+
 local SharedPanel = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false,
 })
--- second page (settings). The bottom-left gear button swaps between the two pages.
+
 local SettingsPage = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false, Visible = false,
@@ -1307,11 +1255,7 @@ registerThemed(BottomVersion, "TextColor3", "Text")
 
 local setSettingsPage
 do
--- settings button (bottom-left): decal icon with a circle highlight on hover. It is the only way
--- back from the settings page.
--- Put either just the decal id (number) or the full image string, e.g.
---   local SettingsIconAssetId = 1234567890
---   local SettingsIconAssetId = "rbxthumb://type=Asset&id=1234567890&w=150&h=150"
+
 local SettingsIconAssetId = 76349806024559
 local SettingsOpen = false
 local SettingsBtn = make("TextButton", {
@@ -1334,9 +1278,7 @@ elseif type(SettingsIconAssetId) == "number" and SettingsIconAssetId ~= 0 then
 		if resolved and resolved ~= "" and SettingsIcon.Parent then SettingsIcon.Image = resolved end
 	end)
 end
--- delayed tick: the mouse has to rest on the icon for SettingsHoverDelay before it ticks to the right.
--- Moving on/off quickly cancels it. Leaving the icon or clicking it ticks it back into place, and after
--- a click it won't tick again until the mouse leaves and re-enters.
+
 local SettingsHoverDelay = 0.3
 local SettingsTickAngle = 25
 local settingsHoverToken = 0
@@ -1358,7 +1300,7 @@ SettingsBtn.MouseEnter:Connect(function()
 	end)
 end)
 SettingsBtn.MouseLeave:Connect(function()
-	settingsHoverToken += 1 -- cancels a pending tick
+	settingsHoverToken += 1
 	settingsClickedWhileHover = false
 	if settingsTicked then
 		settingsTicked = false
@@ -1373,7 +1315,7 @@ setSettingsPage = function(state)
 end
 SettingsBtn.MouseButton1Click:Connect(function()
 	if inputBlocked() then return end
-	-- click: cancel any pending tick and click back into place
+
 	settingsHoverToken += 1
 	settingsClickedWhileHover = true
 	if settingsTicked then
@@ -1384,7 +1326,6 @@ SettingsBtn.MouseButton1Click:Connect(function()
 end)
 end
 
------------------------------------------------------------------- array list (shows enabled toggles)
 local ArrayListFrame = make("Frame", {
 	Parent = ScreenGui, Size = UDim2.fromOffset(170, 150), AnchorPoint = Vector2.new(1, 1),
 	Position = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14,
@@ -1440,7 +1381,6 @@ end
 refreshArrayList()
 end
 
--- corner choices for the array list (short names so they fit the dropdown)
 local ArrayCornerNames = { "Btm Right", "Btm Left", "Top Right", "Top Left" }
 local ArrayCorners = {
 	["Btm Right"] = { anchor = Vector2.new(1, 1), pos = UDim2.new(1, 0, 1, 0), v = Enum.VerticalAlignment.Bottom, h = Enum.HorizontalAlignment.Right },
@@ -1459,13 +1399,11 @@ ToggleCallbacks.ArrayList = function(on)
 	ArrayListFrame.Visible = on
 end
 
------------------------------------------------------------------- columns
 local ColumnGap, ColumnPadding = 8, 7
 local AvailableColumnWidth = PanelWidth - ColumnPadding * 2 - ColumnGap
 local LeftColumnWidth = math.floor(AvailableColumnWidth * 0.5)
 local RightColumnWidth = AvailableColumnWidth - LeftColumnWidth
 
--- how far the scroll bars sit out into the side margins (px). 9 ≈ centered between the content and the UI edge.
 local ScrollOut = 9
 
 local function makeSimpleColumn(xOffset, width, side)
@@ -1510,9 +1448,7 @@ local function makeControlLabel(parent, text, xOffset, rightReserve, fixedTextCo
 	if not fixedTextColor then registerThemed(lbl, "TextColor3", "Text") end
 	return lbl
 end
------------------------------------------------------------------- toggle switch (animation only)
--- returns track, activate, rebind(newStateName). rebind points the switch at another state key and
--- slides it to that key's value.
+
 local function makeToggleSwitch(parent, initialStateName)
 	local stateName = initialStateName
 	local KnobSize, Pad = 7, 4
@@ -1587,9 +1523,8 @@ local function makeToggleSwitch(parent, initialStateName)
 	return track, activateToggle, rebind
 end
 
------------------------------------------------------------------- keybind box
 local waitingForKey = nil
--- returns Box, rebind(newStateName)
+
 local function makeKeybindBox(parent, initialStateName, opts)
 	opts = opts or {}
 	local stateName = initialStateName
@@ -1607,7 +1542,7 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	registerThemed(ClearBind, "TextColor3", "Text")
 	registerThemed(ClearBind, "BackgroundColor3", "Highlight")
 	make("UICorner", { Parent = ClearBind, CornerRadius = UDim.new(1, 0) })
-	-- only show the X when a key is actually bound
+
 	local function syncClear()
 		ClearBind.Visible = not opts.NoClear and Box.Text ~= "Set" and Box.Text ~= ""
 	end
@@ -1625,7 +1560,7 @@ local function makeKeybindBox(parent, initialStateName, opts)
 		if opts.OnChange then pcall(opts.OnChange) end
 	end)
 	table.insert(themedKeybinds, Box)
-	-- used by config load / reset to refresh the shown key
+
 	table.insert(keybindSyncs, function()
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
 		Box.Text = shortKeyName(State.Keybinds[stateName])
@@ -1633,13 +1568,13 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	Box.MouseEnter:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.CheckboxHover }) end)
 	Box.MouseLeave:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.Checkbox }) end)
 	Box.MouseButton1Click:Connect(function()
-		-- the click that just finished binding a mouse button must not restart the capture
+
 		if inputBlocked() then return end
 		if waitingForKey and waitingForKey.Box ~= Box then
 			waitingForKey.Box.Text = shortKeyName(State.Keybinds[waitingForKey.Name])
 		end
 		waitingForKey = { Name = stateName, Box = Box, Opts = opts }
-		Box.Text = "" -- empty box while waiting for a key / mouse button (Esc cancels)
+		Box.Text = ""
 	end)
 	local function rebind(newStateName)
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
@@ -1649,10 +1584,9 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	return Box, rebind
 end
 
------------------------------------------------------------------- slider
 local activeSlider = nil
 local SliderTrackHeight = 5
--- returns Track, ValueLabel, rebind(newSliderName). rebind slides the fill/value to the new slider's value.
+
 local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, width)
 	local sliderName = initialSliderName
 	local sliderWidth, trackX, trackY = width or 42, xOffset or 0, yOffset or 0
@@ -1667,7 +1601,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = Track, Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.SliderFill, BorderSizePixel = 0,
 	})
 	make("UICorner", { Parent = Fill, CornerRadius = UDim.new(1, 0) })
-	-- square cap squares off the fill's right edge so only the track ends are rounded
+
 	local Cap = make("Frame", {
 		Parent = Track, Size = UDim2.fromOffset(0, SliderTrackHeight), BackgroundColor3 = Theme.SliderFill,
 		BorderSizePixel = 0, Visible = false,
@@ -1693,7 +1627,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	Track:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
 	layout()
 
-	-- drives the smooth slide when the slider is pointed at a different value
 	local driver = Instance.new("NumberValue")
 	driver.Value = alpha
 	driver.Parent = Track
@@ -1703,7 +1636,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		ValueLabel.Text = formatValue(sliderName, alphaToValue(sliderName, v))
 		layout()
 	end)
-	-- jumps straight to the current State value (config load / reset)
+
 	sliderEntry.sync = function()
 		if driverTween then driverTween:Cancel() driverTween = nil end
 		local target = valueToAlpha(sliderName, State.Sliders[sliderName])
@@ -1725,7 +1658,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = parent, Size = UDim2.fromOffset(sliderWidth + 12, 18), Position = UDim2.fromOffset(trackX - 6, trackY - 6),
 		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 4,
 	})
-	-- keep the tall hit area as wide as the (stretching) track
+
 	local function syncGrab()
 		GrabArea.Size = UDim2.fromOffset(math.max(Track.AbsoluteSize.X, sliderWidth) + 12, 18)
 	end
@@ -1759,7 +1692,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	return Track, ValueLabel, rebind
 end
 
------------------------------------------------------------------- dropdowns (overlay popup)
 local AimPartLabels = { "Root", "Head", "Upper Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
 local AimPartValues = {
 	Root="HumanoidRootPart", Head="Head", ["Upper Torso"]="UpperTorso", ["Left Arm"]="LeftArm", ["Right Arm"]="RightArm",
@@ -1787,7 +1719,6 @@ task.spawn(function()
 	end
 end)
 
------------------------------------------------------------------- rows / sections
 local function makeSimpleRowBase(parent, height)
 	return make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, height or RowHeight), BackgroundTransparency = 1, BorderSizePixel = 0 })
 end
@@ -1807,8 +1738,6 @@ local function hookHover(row, hover, amount)
 	row.MouseLeave:Connect(function() tween(hover, 0.08, { BackgroundTransparency = 1 }) end)
 end
 
--- bottomGap (optional): extra space under the section that scales with how open it is, so a closed
--- section sits at the normal SectionGap and an open one keeps the extra gap.
 local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local open = startOpen and true or false
 	local headerHeight = 24
@@ -1874,7 +1803,7 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local bodyLayout = make("UIListLayout", {
 		Parent = body, Padding = UDim.new(0, RowGap), SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-	-- openness (0 closed .. 1 open) is animated; heights are always derived from it
+
 	local openness = Instance.new("NumberValue")
 	openness.Value = open and 1 or 0
 	openness.Parent = header
@@ -1913,7 +1842,6 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	return body, wrapper
 end
 
--- returns row, rebind(newStateName)
 local function makeSimpleToggleRow(parent, textValue, stateName)
 	local disabled = TemporarilyDisabledToggles[stateName] == true
 	if disabled then State.Toggles[stateName] = false end
@@ -1928,14 +1856,14 @@ local function makeSimpleToggleRow(parent, textValue, stateName)
 	row.MouseButton1Click:Connect(activateToggle)
 	return row, rebind
 end
--- returns row, rebind(newStateName)
+
 local function makeSimpleKeybindRow(parent, textValue, stateName, opts)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	makeControlLabel(row, textValue, 8, 42)
 	local _, rebind = makeKeybindBox(row, stateName, opts)
 	return row, rebind
 end
--- returns row, rebind(newSliderName)
+
 local function makeSimpleSliderRow(parent, textValue, sliderName)
 	local row = makeSimpleRowBase(parent, SliderRowHeight)
 	local labelX = 8
@@ -1957,11 +1885,6 @@ local function makeSimpleSliderRow(parent, textValue, sliderName)
 	return row, rebind
 end
 
--- Dropdown row: the row never changes size. The option list is a floating popup parented to Main
--- (above everything), so it overlays whatever is below the dropdown instead of pushing it
--- down, and it can't be clipped by the section / scroll frames. Every dropdown uses DropdownWidth.
--- Lists longer than MaxDropdownOptions scroll. Returns row, nil, rebuild(newOptions): rebuild swaps the option list
--- (used by the config dropdown, whose list changes) and refreshes the shown value.
 local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValue)
 	local collapsedH = DropdownHeaderHeight
 	local expandedH = math.min(#options, MaxDropdownOptions) * DropdownOptionHeight
@@ -1997,13 +1920,12 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	})
 	registerThemed(chevron, "ImageColor3", "Chevron")
 	table.insert(chevronLabels, chevron)
-	-- config load / reset refreshes the shown value through this
+
 	table.insert(choiceSyncs, function() selectedLabel.Text = getValue() end)
 
 	header.MouseEnter:Connect(function() tween(header, 0.1, { BackgroundTransparency = 0.88 }) end)
 	header.MouseLeave:Connect(function() tween(header, 0.1, { BackgroundTransparency = 1 }) end)
 
-	-- floating option list
 	local popup = make("ScrollingFrame", {
 		Parent = Main, Size = UDim2.fromOffset(DropdownWidth, 0), Position = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = Theme.Checkbox, BackgroundTransparency = 0.04, BorderSizePixel = 0,
@@ -2017,8 +1939,6 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	registerThemed(popup, "BackgroundColor3", "Checkbox")
 	registerThemed(popup, "ScrollBarImageColor3", "Scroll")
 
-	-- hover tracking: used instead of mouse coordinates for "click outside" (coordinates are off by the
-	-- Roblox top bar inset, which is what made the dropdown reopen itself)
 	local hovered = {}
 	local function trackHover(obj, isPopupPart)
 		obj.MouseEnter:Connect(function()
@@ -2084,15 +2004,12 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		end
 	end
 
-	-- progress 0 (collapsed) .. 1 (expanded) drives only the popup height
 	local progress = Instance.new("NumberValue")
 	progress.Parent = shell
 	progress.Changed:Connect(function(p)
 		popup.Size = UDim2.fromOffset(DropdownWidth, math.floor(expandedH * p + 0.5))
 	end)
 
-	-- popup is a child of Main, so its position is the header's position relative to Main
-	-- (both use the same coordinate space, so the top bar inset cancels out)
 	local function syncPopup()
 		local p, m = shell.AbsolutePosition, Main.AbsolutePosition
 		popup.Position = UDim2.fromOffset(p.X - m.X, p.Y - m.Y + collapsedH)
@@ -2106,7 +2023,7 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		if outsideConn then outsideConn:Disconnect() outsideConn = nil end
 		if followConn then followConn:Disconnect() followConn = nil end
 		if state then
-			closeDropdown() -- close any other open dropdown first
+			closeDropdown()
 			myClose = function() setOpen(false) end
 			activeDropdownClose = myClose
 			for index, option in ipairs(optionButtons) do
@@ -2115,15 +2032,14 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 			popup.CanvasPosition = Vector2.new(0, 0)
 			syncPopup()
 			popup.Visible = true
-			-- clicking anywhere that is not this dropdown's header or list closes it.
-			-- The header handles its own click (toggle), so it is excluded here to avoid close/reopen loops.
+
 			outsideConn = UserInputService.InputBegan:Connect(function(input)
 				if input.KeyCode == Enum.KeyCode.Escape then setOpen(false) return end
 				if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 				if isHovering() then return end
 				setOpen(false)
 			end)
-			-- keep the popup glued to the header (scrolling, section collapsing, window dragging)
+
 			followConn = RunService.RenderStepped:Connect(function()
 				if not shell.Parent or not Main.Visible then setOpen(false) return end
 				local pp, ps = SharedPanel.AbsolutePosition, SharedPanel.AbsoluteSize
@@ -2169,9 +2085,6 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	return row, nil, rebuild
 end
 
--- "<  Value  >" selector row: arrows cycle through the options (wraps around).
--- The value text slides in the direction of the arrow that was clicked:
--- "<" slides the text to the left, ">" slides it to the right.
 local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local ArrowSize, ValueWidth, Margin = 16, 66, 5
@@ -2216,8 +2129,7 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 		index = ((index - 1 + direction) % #options) + 1
 		setValue(options[index])
 		local outgoing, outgoingEntry = current, currentEntry
-		-- direction -1 (left arrow): old text leaves to the left, new text enters from the right
-		-- direction  1 (right arrow): old text leaves to the right, new text enters from the left
+
 		current, currentEntry = makeValueLabel(getValue(), -direction * ValueWidth)
 		local info = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 		TweenService:Create(current, info, { Position = UDim2.fromOffset(0, 0) }):Play()
@@ -2235,7 +2147,6 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 	return row
 end
 
--- Text box row (full width). Returns row, textBox. Only letters, digits, space, - and _ are kept, max 24 chars.
 local function makeSimpleTextBoxRow(parent, placeholder)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local box = make("TextBox", {
@@ -2256,8 +2167,6 @@ local function makeSimpleTextBoxRow(parent, placeholder)
 	return row, box
 end
 
--- Button row: buttons = { {"Label", callback}, ... } shown side by side. If the callback returns a string it is
--- flashed on the button for a second (e.g. "Saved").
 local function makeSimpleButtonRow(parent, buttons)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local holder = make("Frame", {
@@ -2299,8 +2208,6 @@ local function makeSimpleButtonRow(parent, buttons)
 	return row
 end
 
--- Wrapper whose row slides open / closed whenever shouldShow() changes; it is re-checked on every choiceSync
--- (dropdown / preset / theme changes). Hidden wrappers are invisible so the list layout leaves no gap.
 local function makeRevealWrapper(parent, height, shouldShow)
 	local open = shouldShow() and true or false
 	local wrapper = make("Frame", {
@@ -2329,9 +2236,6 @@ local function makeRevealWrapper(parent, height, shouldShow)
 	return wrapper
 end
 
--- Username row (Last.fm preset): faded "Username" hint over an underline. Type a name and press Enter to save it;
--- once one is saved an X appears on the left, and clicking it resets (forgets the name). Letters, digits, _ and -
--- only, max 15 (Last.fm's own limit). Returns row, refresh().
 local function makeSimpleUsernameRow(parent, getUser, onSubmit)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local hasUser = getUser() ~= ""
@@ -2363,7 +2267,6 @@ local function makeSimpleUsernameRow(parent, getUser, onSubmit)
 	registerThemed(box, "TextColor3", "Text")
 	registerThemed(box, "PlaceholderColor3", "Subtext")
 
-	-- slides the box + underline over to make room for the X
 	local function place(saved)
 		local x = xFor(saved)
 		clear.Visible = saved
@@ -2386,7 +2289,7 @@ local function makeSimpleUsernameRow(parent, getUser, onSubmit)
 		tween(line, 0.1, { BackgroundTransparency = 0.35 })
 		local text = box.Text
 		if enterPressed and text ~= "" and text ~= getUser() then onSubmit(text) end
-		box.Text = getUser() -- anything not confirmed with Enter snaps back to the saved name
+		box.Text = getUser()
 		place(getUser() ~= "")
 	end)
 	clear.MouseButton1Click:Connect(function()
@@ -2398,10 +2301,10 @@ local function makeSimpleUsernameRow(parent, getUser, onSubmit)
 	return row, refresh
 end
 
-local setCombatType, tpSpeedRow -- used by the settings page (config load)
------------------------------------------------------------------- menu layout
+local setCombatType, tpSpeedRow
+
 do
--- LEFT COLUMN
+
 local CombatRoot = makeSimpleSection(LeftContent, "Combat", true)
 State.CombatType = "Camlock"
 
@@ -2413,11 +2316,6 @@ makeSimpleCycleRow(CombatRoot, "Type", { "Camlock", "Silent Aim" },
 		if setCombatType then setCombatType(v) end
 	end)
 
--- Camlock and Silent Aim share the same rows (Toggle, Keybind, Prediction, Show Fov, Fov).
--- Switching Type only re-points those rows at the other mode's settings (the sliders and toggles slide
--- to the new values). Only the rows that exist in one mode are added/removed with a height animation:
---   Smoothness is Camlock only. Silent Aim selects its backend automatically.
--- Each item's wrapper carries its own RowGap, so the block never leaves a stray gap when an item is hidden.
 local CombatBlock = make("Frame", {
 	Parent = CombatRoot, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
@@ -2479,8 +2377,6 @@ makeSimpleToggleRow(CombatRoot, "Dead Check", "DeadCheck")
 makeSimpleToggleRow(CombatRoot, "Sticky Aim", "StickyAim")
 makeSimpleToggleRow(CombatRoot, "Target UI", "TargetUI")
 
--- a block of rows where individual rows can slide open / closed without leaving a stray gap (same idea as the
--- combat block above): each item's wrapper carries its own RowGap, the block subtracts the last one
 local function makeAnimatedBlock(parent)
 	local block = make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0 })
 	local layout = make("UIListLayout", { Parent = block, Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder })
@@ -2537,7 +2433,6 @@ makeSimpleToggleRow(WorldSection, "No Fog", "NoFog")
 makeSimpleToggleRow(WorldSection, "Disable Shadows", "DisableShadows")
 makeSimpleToggleRow(WorldSection, "Remove Textures", "LowGfx")
 
--- RIGHT COLUMN
 local EspRoot = makeSimpleSection(RightContent, "Esp", true, EspBottomGap)
 makeSimpleChoiceRow(EspRoot, "Update rate", { "Auto", "60", "120", "144", "160", "180", "200", "240" },
 	function() return State.EspUpdateRate end,
@@ -2571,12 +2466,9 @@ makeSimpleToggleRow(MiscSection, "Auto Pickup", "AutoPickup")
 end
 
 local setThemePreset
------------------------------------------------------------------- settings page
+
 do
--- Same layout as the main page (two columns, rows going down), but ONE scroll for the whole page
--- instead of a scroll per column. The gear button in the bottom-left is the only way back.
--- LEFT:  Appearance (backdrop preset, theme preset, UI Blur, UI Shadow)
--- RIGHT: Config (name box, saved list, Save / Delete / Cancel, Auto Load Last), then Misc
+
 local SettingsScroll = make("ScrollingFrame", {
 	Parent = SettingsPage, Size = UDim2.new(1, ScrollOut, 1, 0), Position = UDim2.fromOffset(0, 0),
 	BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.fromOffset(0, 0),
@@ -2607,21 +2499,19 @@ SettingsLeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncS
 SettingsRightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncSettingsCanvas)
 syncSettingsCanvas()
 
--- ---- theme preset
 setThemePreset = function(name)
 	if not PresetSet[name] then name = "None" end
 	State.Theme = name
-	-- picking a theme turns the backdrop preset off (a preset and a theme can't both be active; Light also can't sit on an image)
+
 	if name ~= "None" and State.Preset ~= "None" and setBackdropPreset then setBackdropPreset("None") end
 	buildTheme("dark")
 	buildTheme("light")
 	applyTheme(name == "Light" and "light" or "dark", true)
 	BlurController.RefreshGlass()
-	syncBlurButton(true) -- re-tints the wave logo
-	for _, sync in ipairs(choiceSyncs) do pcall(sync) end -- refresh the Theme / Presets dropdown labels
+	syncBlurButton(true)
+	for _, sync in ipairs(choiceSyncs) do pcall(sync) end
 end
 
--- ---- config backend intentionally disconnected in this test build
 local ConfigNames = { "Not ready" }
 local ActiveConfig = nil
 local ConfigNameBox
@@ -2660,17 +2550,15 @@ ToggleCallbacks.CurrentSong = function(on)
 	end
 end
 
--- ---- layout
--- LEFT COLUMN
 local AppearanceSection = makeSimpleSection(SettingsLeft, "Appearance", true)
 makeSimpleChoiceRow(AppearanceSection, "Presets", { "None", "Daydream", "Last.fm" },
 	function() return State.Preset end,
 	function(v)
-		-- picking a preset turns the theme off
+
 		if v ~= "None" and State.Theme ~= "None" then setThemePreset("None") end
 		setBackdropPreset(v)
 	end)
--- username row: needed by the Last.fm preset and by Current Song, so it is shown while either is on
+
 makeSimpleUsernameRow(
 	makeRevealWrapper(AppearanceSection, RowHeight, function() return State.Preset == "Last.fm" or State.Toggles.CurrentSong == true end),
 	function() return State.LastfmUser end,
@@ -2678,12 +2566,11 @@ makeSimpleUsernameRow(
 makeSimpleChoiceRow(AppearanceSection, "Theme", PresetNames,
 	function() return State.Theme end,
 	function(v) setThemePreset(v) end)
--- Background Blur is only shown while no preset is active (a preset image covers the window, so it would do nothing)
+
 makeSimpleToggleRow(makeRevealWrapper(AppearanceSection, RowHeight, function() return State.Preset == "None" end), "Background Blur", "UIBlur")
 makeSimpleToggleRow(AppearanceSection, "UI Shadow", "UIShadow")
 makeSimpleToggleRow(AppearanceSection, "Current Song", "CurrentSong")
 
--- RIGHT COLUMN
 local ConfigSection = makeSimpleSection(SettingsRight, "Config", true)
 ConfigNameBox = select(2, makeSimpleTextBoxRow(ConfigSection, "Config name"))
 rebuildConfigDropdown = select(3, makeSimpleChoiceRow(ConfigSection, "Saved", ConfigNames,
@@ -2704,8 +2591,6 @@ makeSimpleButtonRow(makeRevealWrapper(SettingsMisc, RowHeight, function() return
 makeSimpleButtonRow(SettingsMisc, { { "Unload UI", unloadUI } })
 end
 
------------------------------------------------------------------- feature backend
--- Shared held-key state is also used by the Tween Click TP runtime.
 local heldInputNames = {}
 local function isTweenTpBindHeld()
 	local bind = State.Keybinds.TweenClickTpToggle
@@ -2937,7 +2822,6 @@ local function getStandardAdaptivePart(model, selection, reference)
 		end
 	end
 
-	-- Every candidate is obstructed: keep the user's selected hit part as the fallback.
 	return selected or (candidates[1] and candidates[1].Part) or getStandardCombatPart(model, "HumanoidRootPart")
 end
 local function getCombatAimPosition(player, selection, adaptive, reference)
@@ -3026,8 +2910,7 @@ local function updateCamLockFrame(deltaTime)
 
 	if camLockedTarget ~= nil and not camIsValidTarget(camLockedTarget) then
 		if State.Toggles.StickyAim and camPlayerCanRemainLocked(camLockedTarget) then
-			-- Keep the same player selected while their character is dead or respawning.
-			-- The camera resumes tracking them once they have a valid character again.
+
 			return
 		end
 		camLockedTarget = nil
@@ -3062,8 +2945,7 @@ local function updateCamLockFrame(deltaTime)
 	)
 	if not position then return end
 	if not modelPassesWallCheck(position, model) then
-		-- Wall Check can temporarily pause tracking without forcing a new target.
-		-- With Sticky Aim off, release the blocked target and acquire another one.
+
 		if not State.Toggles.StickyAim then
 			camLockedTarget = nil
 			camReacquireAfter = os.clock()
@@ -3084,7 +2966,6 @@ local function updateCamLockFrame(deltaTime)
 	end
 end
 
--- Run after Roblox's camera controller so ESP can project against this exact camera frame.
 pcall(function() RunService:UnbindFromRenderStep(CamLockRenderName) end)
 RunService:BindToRenderStep(
 	CamLockRenderName,
@@ -3308,8 +3189,7 @@ function __WaveLiteSetupSilent()
 		local camera=workspace.CurrentCamera
 		if not camera then return nil end
 		local projected=camera:WorldToViewportPoint(position)
-		-- A retained Sticky Aim target can move beyond the visible viewport; only reject
-		-- targets behind the camera. New acquisitions are still constrained by FOV distance.
+
 		if projected.Z<=0 then return nil end
 		local dist=(Vector2.new(projected.X,projected.Y)-mouse).Magnitude
 		return {player=player,position=position,part=part,model=model,dist=dist}
@@ -3330,8 +3210,6 @@ function __WaveLiteSetupSilent()
 			local retained=nil
 			local sticky=State.Toggles.StickyAim == true
 
-			-- Prefer the already-acquired player. Sticky Aim lets that player remain selected
-			-- outside the FOV and across death/respawn; without it, they must stay in the FOV.
 			local currentPlayer=silent.player
 			if currentPlayer then
 				if not silentPlayerCanRemainTargeted(currentPlayer) then
@@ -3343,8 +3221,7 @@ function __WaveLiteSetupSilent()
 					if previous and (sticky or previous.dist<=radius) then
 						retained=previous
 					elseif sticky then
-						-- The selected player is temporarily not aimable (usually dead,
-						-- respawning, or occluded). Keep their identity, but never use a stale part.
+
 						silent.cache=nil
 						return
 					else
@@ -3354,7 +3231,6 @@ function __WaveLiteSetupSilent()
 				end
 			end
 
-			-- No retained target: acquire the nearest valid player inside the FOV.
 			if not retained then
 				local closest=radius
 				for _,player in ipairs(Players:GetPlayers()) do
@@ -3386,8 +3262,7 @@ function __WaveLiteSetupSilent()
 		end
 	end
 	local function canRedirect()
-		-- Match the supplied known-working hook gate exactly. Do not re-resolve the
-		-- target model here: some games expose a separate combat model from Player.Character.
+
 		if not silent.active or not silent.enabled or silent.updating then return nil end
 		local cache=silent.cache
 		if not cache or not cache.part or not cache.part.Parent or os.clock()-cache.stamp>0.2 then return nil end
@@ -3399,8 +3274,7 @@ function __WaveLiteSetupSilent()
 	end
 	local function validateOriginalArguments(method,args)
 		if method=="Raycast" then
-			-- RaycastParams is optional in Roblox; requiring it caused two-argument
-			-- workspace:Raycast calls to be silently ignored by the hook.
+
 			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3"
 				and (args[3]==nil or typeof(args[3])=="RaycastParams")
 		end
@@ -3454,7 +3328,7 @@ function __WaveLiteSetupSilent()
 			logDiagnostic("ERROR","Fallback visibility ray failed: "..tostring(result),"fallbackVisibility")
 			return false
 		end
-		-- Match the second script: clear path or first hit belongs to target model.
+
 		return result==nil or (result.Instance and result.Instance:IsDescendantOf(model))
 	end
 
@@ -3557,15 +3431,10 @@ function __WaveLiteSetupSilent()
 		silent.lastReject=nil
 		logDiagnostic("INFO","Universal Raycast fallback hit "..fallback.player.Name,"fallbackHit")
 		if method=="Raycast" then return table.pack(rayResult) end
-		-- Legacy FindPartOnRay APIs return (part, position, normal, material),
-		-- so translate the universal RaycastResult to their expected tuple.
+
 		return table.pack(rayResult.Instance,rayResult.Position,rayResult.Normal,rayResult.Material)
 	end
 
-	-- ACS-specific projectile adapter. The reference script's workspace:Raycast is its
-	-- visibility test; actual projectile redirection happens in ACS_WorkSpace's
-	-- ThrowRayCast function by moving the spawned bullet. Keep that as a targeted
-	-- fallback while the normal workspace Raycast remains the universal path.
 	local acsInstallPayload = [[
 local actor, targetScript, initialConfig = ...
 if type(getsenv) ~= "function" or type(hookfunction) ~= "function" then error("executor missing getsenv/hookfunction") end
@@ -3786,9 +3655,7 @@ getgenv().WaveLiteACS_Config = config
 ]]
 	local function buildAcsConfig()
 		return {
-			-- Workspace raycast matches are not proof that the weapon's projectile path is working.
-			-- Keep the ACS ThrowRayCast adapter enabled for the selected Raycast method even
-			-- when unrelated workspace queries happen to hit the cached target.
+
 			Enabled=silent.active and silent.enabled,
 			Session=tostring(silent),
 			Method=silent.activeMethod or "Raycast",
@@ -3825,7 +3692,7 @@ getgenv().WaveLiteACS_Config = config
 		return table.concat({tostring(cfg.Enabled),tostring(cfg.Method),tostring(cfg.AimPart),tostring(cfg.AdaptiveAim),tostring(cfg.TeamCheck),tostring(cfg.DeadCheck),tostring(cfg.WallCheck),tostring(cfg.FovRadius),tostring(cfg.Prediction)},"|")
 	end
 	task.spawn(function()
-		-- Match the reference ACS script's delayed injection so ThrowRayCast has time to initialize.
+
 		task.wait(1)
 		local lastActor,lastScript,lastSignature=nil,nil,nil
 		while silent.active and ScreenGui.Parent do
@@ -3897,8 +3764,7 @@ getgenv().WaveLiteACS_Config = config
 			recordAutoMethod(method)
 			local selected=silent.activeMethod or "Raycast"
 			local canonical=normalizeRayMethod(method)
-			-- Keep the established Worldspace Raycast path unchanged. Legacy adapters
-			-- are narrower: only route them inside a recent Tool.Activated / M1 shot window.
+
 			if canonical~="Raycast" and not recentShotRecord() then return oldNamecall(self,...) end
 			if canonical~=selected then
 				if silent.lastDetectedMethod~=method then
@@ -4964,7 +4830,7 @@ function __WaveLiteSetupEsp()
 	local updateAccumulator = 0
 	local geometryOutlineThickness = 1.8
 	local geometryThickness = 1
-	local textFont = 1 -- System
+	local textFont = 1
 	local friendColor = Color3.fromRGB(255, 255, 0)
 	local friendIndicatorAssetId = 72047062472203
 	local friendIndicatorImage = "rbxassetid://" .. tostring(friendIndicatorAssetId)
@@ -5202,8 +5068,6 @@ function __WaveLiteSetupEsp()
 		return boundsCFrame, boundsSize
 	end
 
-	-- Build the skeleton links once when a character is first seen. The render loop
-	-- only projects these cached part references; it never rescans GetDescendants().
 	local function buildSkeletonPairs(character)
 		local byName = {}
 		for _, part in ipairs(character:GetDescendants()) do
@@ -5473,7 +5337,6 @@ function __WaveLiteSetupEsp()
 		local drawings = object.drawings
 		local ratio = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
 
-		-- Both axes follow the projected box. No fixed 16px minimum at long range.
 		local barHeight = math.max(1, boxHeight)
 		local border = math.clamp(barHeight * 0.01, 0.35, 0.85)
 		local trackWidth = math.clamp(barHeight * 0.028, 0.6, 2.3)
@@ -5646,7 +5509,7 @@ function __WaveLiteSetupEsp()
 		local friendOn = State.Toggles.FriendEsp and isFriend(player)
 		local white = Color3.fromRGB(255, 255, 255)
 		local playerColor = friendOn and friendColor or white
-		-- World-space indicators stay independent of screen-space projection.
+
 		updateFriendMarker(object, root, boundsCFrame, boundsSize, friendOn)
 		updateCharacterOutline(object, character, playerColor, State.Toggles.Outlines)
 		if not boundsCFrame or not boundsSize then
@@ -5816,7 +5679,7 @@ function __WaveLiteSetupEsp()
 			if updateAccumulator + 0.000001 < interval then return end
 			updateAccumulator %= interval
 		else
-			-- Auto = one update per rendered Roblox frame. The selected label remains Auto.
+
 			updateAccumulator = 0
 		end
 
@@ -5857,7 +5720,7 @@ function __WaveLiteSetupEsp()
 			updateAccumulator = 0
 			pcall(function() RunService:UnbindFromRenderStep(renderName) end)
 			RunService:BindToRenderStep(renderName, Enum.RenderPriority.Last.Value + 1, function(deltaTime)
-				-- Keep screen-space ESP in sync with every Camlock camera adjustment.
+
 				updateEspFrame(deltaTime, camLockActive)
 			end)
 			updateEspFrame(0, true)
@@ -5931,7 +5794,6 @@ end
 __WaveLiteSetupEsp()
 __WaveLiteSetupEsp = nil
 
--- Bridge the new UI switches to the existing feature routines. TargetUI is intentionally not connected.
 local FeatureToggleCallbacks = {
 	Camlock = "WaveLite_CamLock_Toggle", Silent = "WaveLite_Silent_Toggle",
 	Fly = "WaveLite_Fly_Toggle", Noclip = "WaveLite_Noclip_Toggle",
@@ -5954,9 +5816,7 @@ for stateName, globalName in pairs(FeatureToggleCallbacks) do
 		if type(callback) == "function" then callback(on) end
 	end
 end
--- TargetUI, AutoLoad, and config persistence intentionally have no callbacks in this build.
 
------------------------------------------------------------------- dragging / input
 local dragging, dragStart, startPos = false, nil, nil
 Header.InputBegan:Connect(function(input)
 	if waitingForKey then return end
@@ -6039,7 +5899,6 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
 	end
 end))
 
------------------------------------------------------------------- init
 applyTheme("dark")
 syncLogoVisibility()
 syncBlurButton()
@@ -6047,7 +5906,6 @@ applyArrayPosition()
 refreshArrayList()
 BlurController.RefreshGlass()
 
--- The menu starts with the default Daydream backdrop; no settings or config files are read or written.
 setThemePreset(State.Theme)
 setBackdropPreset(State.Preset)
 if setCombatType then setCombatType(State.CombatType) end
