@@ -56,7 +56,7 @@ local State = {
 		UIBlur = false, UIShadow = true, ArrayList = true, AutoLoad = false, CurrentSong = false,
 	},
 	Keybinds = { CamLockToggle = nil, SilentToggle = nil, FlyToggle = nil, TweenClickTpToggle = nil, MenuToggle = "Insert" },
-	AimPart = "UpperTorso", SilentMethod = "Raycast", EspUpdateRate = "Auto", FlyType = "CFrame", TpMode = "Tween",
+	AimPart = "UpperTorso", EspUpdateRate = "Auto", FlyType = "CFrame", TpMode = "Tween",
 	Theme = "None", ArrayPosition = "Btm Right", Preset = "Daydream", LastfmUser = "",
 }
 
@@ -1774,15 +1774,6 @@ local AimPartAliases = {
 	LeftArm={"LeftUpperArm","LeftLowerArm","LeftHand","Left Arm"}, RightArm={"RightUpperArm","RightLowerArm","RightHand","Right Arm"},
 	LeftLeg={"LeftUpperLeg","LeftLowerLeg","LeftFoot","Left Leg"}, RightLeg={"RightUpperLeg","RightLowerLeg","RightFoot","Right Leg"},
 }
--- short names shown in the dropdown; State.SilentMethod keeps the full names
-local SilentMethodLabels = { "Raycast", "FPOR", "FPORWWL", "FPORWIL", "Mouse" }
-local SilentMethodValues = {
-	Raycast = "Raycast", FPOR = "FindPartOnRay", FPORWWL = "FindPartOnRayWithWhitelist",
-	FPORWIL = "FindPartOnRayWithIgnoreList", Mouse = "Mouse.Hit/Target",
-}
-local SilentMethodDisplay = {}
-for short, full in pairs(SilentMethodValues) do SilentMethodDisplay[full] = short end
-
 local ChevronAssetId = 79521530937277
 local ChevronImage = "rbxthumb://type=Asset&id=" .. ChevronAssetId .. "&w=150&h=150"
 local chevronLabels = {}
@@ -2425,7 +2416,7 @@ makeSimpleCycleRow(CombatRoot, "Type", { "Camlock", "Silent Aim" },
 -- Camlock and Silent Aim share the same rows (Toggle, Keybind, Prediction, Show Fov, Fov).
 -- Switching Type only re-points those rows at the other mode's settings (the sliders and toggles slide
 -- to the new values). Only the rows that exist in one mode are added/removed with a height animation:
---   Smoothness is Camlock only, Method is Silent Aim only.
+--   Smoothness is Camlock only. Silent Aim selects its backend automatically.
 -- Each item's wrapper carries its own RowGap, so the block never leaves a stray gap when an item is hidden.
 local CombatBlock = make("Frame", {
 	Parent = CombatRoot, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
@@ -2468,12 +2459,6 @@ local ctPrediction = addCombatItem(function(p) return makeSimpleSliderRow(p, "Pr
 local ctSmoothness = addCombatItem(function(p) return makeSimpleSliderRow(p, "Smoothness", "Smoothness") end, true)
 local ctShowFov    = addCombatItem(function(p) return makeSimpleToggleRow(p, "Show Fov", "FovCircle") end, true)
 local ctFov        = addCombatItem(function(p) return makeSimpleSliderRow(p, "Fov", "FovRadius") end, true)
-local ctMethod     = addCombatItem(function(p)
-	return makeSimpleChoiceRow(p, "Method", SilentMethodLabels,
-		function() return SilentMethodDisplay[State.SilentMethod] or "Raycast" end,
-		function(name) State.SilentMethod = SilentMethodValues[name] or "Raycast" end)
-end, false)
-
 setCombatType = function(v)
 	local cam = v == "Camlock"
 	ctToggle.Rebind(cam and "Camlock" or "Silent")
@@ -2482,7 +2467,6 @@ setCombatType = function(v)
 	ctShowFov.Rebind(cam and "FovCircle" or "SilentFovCircle")
 	ctFov.Rebind(cam and "FovRadius" or "SilentFovRadius")
 	ctSmoothness.SetOpen(cam)
-	ctMethod.SetOpen(not cam)
 end
 
 makeSimpleChoiceRow(CombatRoot, "Aim Part", AimPartLabels,
@@ -3134,7 +3118,16 @@ _G.WaveLite_CamLock_Toggle = function(forceState)
 	end
 end
 function __WaveLiteSetupSilent()
-	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0, target=nil, cache=nil, targetAt=0, redirected=0, observed=0, hooked=false, updating=false, mouse=LocalPlayer:GetMouse(), player=nil, lastMethod=nil, lastReject=nil}
+	local worldspaceFallbackPlaceId = 12673840215
+	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0,
+	shotHistory={}, shotSequence=0, lastShotSignal=0, activeMethod="Raycast", autoChanges=0,
+	autoReason="insufficient firing evidence; Worldspace Raycast is the default", methodEvidence={},
+	lastShotSource="none", lastCallerByMethod={}, target=nil, cache=nil, targetAt=0, redirected=0,
+	observed=0, primaryHits=0, totalObserved=0, methodCounts={}, lastDetectedMethod=nil, hooked=false,
+	updating=false, mouse=LocalPlayer:GetMouse(), player=nil, lastMethod=nil, lastReject=nil, lastError=nil,
+	fallbackProbe=false, fallbackAttempts=0, fallbackDetections=0, fallbackUsed=0, fallbackHits=0,
+	fallbackLastTarget=nil, acsStatus="Searching for ACS", acsActor=nil, acsScript=nil,
+	acsRebindRequested=false, acsRebindAt=0, diagnostics={}, logThrottle={}}
 	if type(_G.WaveLiteSilentHookContext)=="table" then
 		_G.WaveLiteSilentHookContext.active = false
 		_G.WaveLiteSilentHookContext.enabled = false
@@ -3145,9 +3138,128 @@ function __WaveLiteSetupSilent()
 		table.insert(silent.connections,c)
 		return c
 	end
+	local function logDiagnostic(level, message, throttleKey)
+		local now=os.clock()
+		if throttleKey and now-(silent.logThrottle[throttleKey] or 0)<1 then return end
+		if throttleKey then silent.logThrottle[throttleKey]=now end
+		local line=string.format("[%0.2f] %s: %s",now,tostring(level or "INFO"),tostring(message or ""))
+		table.insert(silent.diagnostics,line)
+		while #silent.diagnostics>30 do table.remove(silent.diagnostics,1) end
+		if level=="ERROR" then silent.lastError=tostring(message) end
+		pcall(warn,"[Wave Lite Silent] "..line)
+	end
+	local function readAcsRuntime()
+		if type(getgenv)~="function" then return nil end
+		local ok,environment=pcall(getgenv)
+		if not ok or type(environment)~="table" then return nil end
+		local state=environment.WaveLiteACS_State
+		return type(state)=="table" and state or nil
+	end
 	local function currentTool()
 		local c=LocalPlayer.Character
 		return c and c:FindFirstChildOfClass("Tool") or nil
+	end
+	local function normalizeRayMethod(method)
+		if method=="findPartOnRay" then return "FindPartOnRay" end
+		if method=="Raycast" or method=="FindPartOnRay" or method=="FindPartOnRayWithIgnoreList"
+			or method=="FindPartOnRayWithWhitelist" or method=="Mouse.Hit/Target" then return method end
+		return nil
+	end
+	local function markShotSignal(source)
+		if not silent.active or not silent.enabled then return end
+		local now=os.clock()
+		local record=silent.shotHistory[#silent.shotHistory]
+		if not record or now-(record.lastSignal or record.time)>0.035 then
+			silent.shotSequence+=1
+			record={id=silent.shotSequence,time=now,lastSignal=now,expires=now+0.24,toolActivated=false,mouseDown=false,methods={},callers={}}
+			table.insert(silent.shotHistory,record)
+			while #silent.shotHistory>32 do table.remove(silent.shotHistory,1) end
+		else
+			record.lastSignal=now
+			record.expires=math.max(record.expires or 0,now+0.24)
+		end
+		if source=="Tool.Activated" then record.toolActivated=true end
+		if source=="MouseButton1" then record.mouseDown=true end
+		silent.shotUntil=math.max(silent.shotUntil,now+0.24)
+		silent.lastShotSignal=now
+		silent.lastShotSource=source
+	end
+	local function recentShotRecord()
+		local record=silent.shotHistory[#silent.shotHistory]
+		if record and os.clock()<=(record.expires or 0) then return record end
+		return nil
+	end
+	local function evaluateAutoMethod()
+		local scores,shots={},{}
+		local now=os.clock()
+		for i=#silent.shotHistory,1,-1 do
+			local record=silent.shotHistory[i]
+			if now-(record.time or 0)>12 then
+				table.remove(silent.shotHistory,i)
+			else
+				local weight=record.toolActivated and 2 or 1
+				for method in pairs(record.methods) do
+					scores[method]=(scores[method] or 0)+weight
+					shots[method]=(shots[method] or 0)+1
+				end
+			end
+		end
+		local rayScore=scores.Raycast or 0
+		local rayShots=shots.Raycast or 0
+		local bestLegacy,bestScore,bestShots=nil,0,0
+		local legacyMethods={"FindPartOnRay","FindPartOnRayWithIgnoreList","FindPartOnRayWithWhitelist","Mouse.Hit/Target"}
+		for _,method in ipairs(legacyMethods) do
+			local score=scores[method] or 0
+			local count=shots[method] or 0
+			if count>=4 and score>=4 and score>bestScore then bestLegacy,bestScore,bestShots=method,score,count end
+		end
+		local selected="Raycast"
+		local reason
+		if bestLegacy and bestScore>=rayScore+3 then
+			selected=bestLegacy
+			reason=string.format("%s correlated with %d firing events (score %d); Raycast score %d",bestLegacy,bestShots,bestScore,rayScore)
+		elseif rayShots>=3 then
+			reason=string.format("Worldspace Raycast correlated with %d firing events (score %d)",rayShots,rayScore)
+		else
+			reason=string.format("insufficient firing evidence; keeping Worldspace Raycast default (Raycast %d shots, legacy best %d)",rayShots,bestShots)
+		end
+		if game.PlaceId ~= worldspaceFallbackPlaceId then
+			selected = "Raycast"
+			reason = "Worldspace Raycast default; fallback restricted to supported game"
+		end
+		if selected~=silent.activeMethod then
+			local previous=silent.activeMethod
+			silent.activeMethod=selected
+			silent.autoChanges+=1
+			silent.autoReason=reason
+			logDiagnostic("INFO","Auto backend changed: "..tostring(previous).." -> "..tostring(selected).."; "..reason,"autoSwitch")
+		else
+			silent.autoReason=reason
+		end
+		local evidence={}
+		for _,method in ipairs({"Raycast","FindPartOnRay","FindPartOnRayWithIgnoreList","FindPartOnRayWithWhitelist","Mouse.Hit/Target"}) do
+			local n=shots[method] or 0
+			if n>0 then evidence[method]=string.format("%d shots/%d",n,scores[method] or 0) end
+		end
+		silent.methodEvidence=evidence
+	end
+	local function recordAutoMethod(method)
+		local canonical=normalizeRayMethod(method)
+		if not canonical then return end
+		local record=recentShotRecord()
+		if not record or record.methods[canonical] then return end
+		record.methods[canonical]=true
+		local caller="unavailable"
+		if type(getcallingscript)=="function" then
+			local ok,script=pcall(getcallingscript)
+			if ok and typeof(script)=="Instance" then
+				local nameOk,name=pcall(function() return script:GetFullName() end)
+				if nameOk then caller=name end
+			end
+		end
+		record.callers[canonical]=caller
+		silent.lastCallerByMethod[canonical]=caller
+		evaluateAutoMethod()
 	end
 	local function setTool()
 		local tool=currentTool()
@@ -3157,7 +3269,18 @@ function __WaveLiteSetupSilent()
 		silent.target=nil
 		silent.cache=nil
 		silent.shotUntil=0
+		if tool then
+			local ok,connection=pcall(function()
+				return tool.Activated:Connect(function() markShotSignal("Tool.Activated") end)
+			end)
+			if ok then silent.toolConnection=connection end
+		end
 	end
+	connect(UserInputService.InputBegan,function(input,gameProcessed)
+		if input.UserInputType==Enum.UserInputType.MouseButton1 and not gameProcessed and currentTool() then
+			markShotSignal("MouseButton1")
+		end
+	end)
 	local function goodTarget(player)
 		if not player or player==LocalPlayer or not player.Parent then return false end
 		if State.Toggles.TeamCheck and LocalPlayer.Team~=nil and player.Team==LocalPlayer.Team then return false end
@@ -3199,7 +3322,7 @@ function __WaveLiteSetupSilent()
 	local function selectTarget()
 		if silent.updating then return end
 		silent.updating=true
-		local ok=pcall(function()
+		local ok,err=pcall(function()
 			setTool()
 			if not silent.enabled then silent.target=nil;silent.cache=nil;silent.player=nil;return end
 			local mouse=UserInputService:GetMouseLocation()
@@ -3257,7 +3380,10 @@ function __WaveLiteSetupSilent()
 			end
 		end)
 		silent.updating=false
-		if not ok then silent.cache=nil end
+		if not ok then
+			silent.cache=nil
+			logDiagnostic("ERROR","Target selection failed: "..tostring(err),"selectTarget")
+		end
 	end
 	local function canRedirect()
 		-- Match the supplied known-working hook gate exactly. Do not re-resolve the
@@ -3273,8 +3399,10 @@ function __WaveLiteSetupSilent()
 	end
 	local function validateOriginalArguments(method,args)
 		if method=="Raycast" then
-			-- Preserve the exact argument contract from the supplied working build.
-			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3" and typeof(args[3])=="RaycastParams"
+			-- RaycastParams is optional in Roblox; requiring it caused two-argument
+			-- workspace:Raycast calls to be silently ignored by the hook.
+			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3"
+				and (args[3]==nil or typeof(args[3])=="RaycastParams")
 		end
 		if method=="FindPartOnRay" or method=="findPartOnRay" then
 			return typeof(args[1])=="Ray"
@@ -3284,57 +3412,569 @@ function __WaveLiteSetupSilent()
 		end
 		return false
 	end
-	-- This is the direct redirection path from the supplied last-working build.
-	-- Do not add camera-script or angle heuristics here: those gates caused valid
-	-- weapon raycasts to pass through unchanged in the newer build.
 	local function getOriginalDirection(origin,position)
 		local diff=position-origin
 		if diff.Magnitude<=0.001 then return nil end
 		return diff.Unit*1000
 	end
 	local oldNamecall
-	if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
-		local callback=function(self,...)
-			if not silent.active or not silent.enabled or self~=workspace then return oldNamecall(self,...) end
-			local method=getnamecallmethod()
-			local selected=State.SilentMethod
-			if method~=selected and not (selected=="FindPartOnRay" and method=="findPartOnRay") then return oldNamecall(self,...) end
-			silent.observed += 1
-			silent.lastMethod = method
-			local cache=canRedirect()
-			if not cache then
-				silent.lastReject = "No fresh target cache"
-				return oldNamecall(self,...)
+	local fallbackRaycastParams=RaycastParams.new()
+	fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Exclude
+	fallbackRaycastParams.IgnoreWater=true
+
+	local function refreshFallbackFilter(extraIgnore)
+		local ignored={}
+		local character=LocalPlayer.Character
+		if character then table.insert(ignored,character) end
+		local acs=workspace:FindFirstChild("ACS_WorkSpace")
+		if acs then
+			local client=acs:FindFirstChild("Client")
+			local server=acs:FindFirstChild("Server")
+			if client then table.insert(ignored,client) end
+			if server then table.insert(ignored,server) end
+		end
+		if type(extraIgnore)=="table" then
+			for _,item in ipairs(extraIgnore) do table.insert(ignored,item) end
+		end
+		fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Exclude
+		fallbackRaycastParams.FilterDescendantsInstances=ignored
+	end
+
+	local function fallbackPositionVisible(position,model,origin)
+		if typeof(position)~="Vector3" or not model then return false end
+		local direction=position-origin
+		if direction.Magnitude<=0.01 then return true end
+		refreshFallbackFilter()
+		silent.fallbackProbe=true
+		local ok,result=pcall(function()
+			return workspace:Raycast(origin,direction,fallbackRaycastParams)
+		end)
+		silent.fallbackProbe=false
+		if not ok then
+			logDiagnostic("ERROR","Fallback visibility ray failed: "..tostring(result),"fallbackVisibility")
+			return false
+		end
+		-- Match the second script: clear path or first hit belongs to target model.
+		return result==nil or (result.Instance and result.Instance:IsDescendantOf(model))
+	end
+
+	local function selectWorldspaceFallback(origin)
+		if typeof(origin)~="Vector3" then return nil end
+		local camera=workspace.CurrentCamera
+		if not camera then return nil end
+		local mouse=UserInputService:GetMouseLocation()
+		local radius=tonumber(State.Sliders.SilentFovRadius) or 150
+		local candidates={}
+		local preferred=State.Toggles.StickyAim and silent.player or nil
+
+		for _,player in ipairs(Players:GetPlayers()) do
+			if player==LocalPlayer or (preferred and player~=preferred) then continue end
+			if not goodTarget(player) then continue end
+			local position,model,motionPart
+			if State.Toggles.AdaptiveAim then
+				position,model,motionPart=silentAdaptivePart(player,mouse)
+			else
+				position,model,motionPart=getCombatAimPosition(player,State.AimPart,false,mouse)
 			end
+			if not position or not model then continue end
+			local screen,onScreen=camera:WorldToViewportPoint(position)
+			if not onScreen or screen.Z<=0 then continue end
+			local distance=(Vector2.new(screen.X,screen.Y)-mouse).Magnitude
+			if distance<=radius then
+				table.insert(candidates,{player=player,position=position,motionPart=motionPart,model=model,distance=distance})
+			end
+		end
+		table.sort(candidates,function(a,b) return a.distance<b.distance end)
+		for _,entry in ipairs(candidates) do
+			if fallbackPositionVisible(entry.position,entry.model,origin) then
+				local velocity=entry.motionPart and entry.motionPart.AssemblyLinearVelocity or Vector3.zero
+				local position=entry.position+velocity*(tonumber(State.Sliders.SilentPrediction) or 0)
+				silent.fallbackDetections+=1
+				silent.fallbackLastTarget=entry.player.Name
+				return {player=entry.player,part=entry.motionPart,model=entry.model,position=position,stamp=os.clock()}
+			end
+		end
+		return nil
+	end
+
+	local function resultInstance(method,resultPack)
+		if method=="Raycast" then
+			local result=resultPack[1]
+			return typeof(result)=="RaycastResult" and result.Instance or nil
+		end
+		local part=resultPack[1]
+		return typeof(part)=="Instance" and part or nil
+	end
+	local function resultHitsTarget(method,resultPack,target)
+		local instance=resultInstance(method,resultPack)
+		return instance~=nil and target~=nil and target.model~=nil and instance:IsDescendantOf(target.model)
+	end
+	local function prepareUniversalParams(method,args)
+		if method=="FindPartOnRayWithWhitelist" then
+			fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Include
+			fallbackRaycastParams.FilterDescendantsInstances=args[2]
+		else
+			local extraIgnore=method=="FindPartOnRayWithIgnoreList" and args[2] or nil
+			refreshFallbackFilter(extraIgnore)
+		end
+	end
+	local function useWorldspaceFallback(self,args,origin,method)
+		if game.PlaceId ~= worldspaceFallbackPlaceId then return nil end
+		silent.fallbackAttempts+=1
+		local fallback=selectWorldspaceFallback(origin)
+		if not fallback then
+			silent.lastReject="Worldspace fallback: no visible target in FOV"
+			logDiagnostic("INFO",silent.lastReject,"fallbackNoTarget")
+			return nil
+		end
+		local direction=fallback.position-origin
+		if direction.Magnitude<=0.001 then
+			silent.lastReject="Worldspace fallback: target too close to ray origin"
+			logDiagnostic("ERROR",silent.lastReject,"fallbackNear")
+			return nil
+		end
+		prepareUniversalParams(method,args)
+		silent.fallbackProbe=true
+		local ok,rayResult=pcall(function()
+			return workspace:Raycast(origin,direction,fallbackRaycastParams)
+		end)
+		silent.fallbackProbe=false
+		if not ok then
+			silent.lastReject="Universal Raycast error: "..tostring(rayResult)
+			logDiagnostic("ERROR",silent.lastReject,"fallbackQuery")
+			return nil
+		end
+		if not rayResult or not rayResult.Instance or not rayResult.Instance:IsDescendantOf(fallback.model) then
+			silent.lastReject="Universal Raycast ran but did not hit fallback target"
+			logDiagnostic("INFO",silent.lastReject,"fallbackMiss")
+			return nil
+		end
+		silent.fallbackUsed+=1
+		silent.fallbackHits+=1
+		silent.player=fallback.player
+		silent.cache=fallback
+		silent.fallbackLastTarget=fallback.player.Name
+		silent.lastReject=nil
+		logDiagnostic("INFO","Universal Raycast fallback hit "..fallback.player.Name,"fallbackHit")
+		if method=="Raycast" then return table.pack(rayResult) end
+		-- Legacy FindPartOnRay APIs return (part, position, normal, material),
+		-- so translate the universal RaycastResult to their expected tuple.
+		return table.pack(rayResult.Instance,rayResult.Position,rayResult.Normal,rayResult.Material)
+	end
+
+	-- ACS-specific projectile adapter. The reference script's workspace:Raycast is its
+	-- visibility test; actual projectile redirection happens in ACS_WorkSpace's
+	-- ThrowRayCast function by moving the spawned bullet. Keep that as a targeted
+	-- fallback while the normal workspace Raycast remains the universal path.
+	local acsInstallPayload = [[
+local actor, targetScript, initialConfig = ...
+if type(getsenv) ~= "function" or type(hookfunction) ~= "function" then error("executor missing getsenv/hookfunction") end
+local globals = getgenv()
+globals.WaveLiteACS_Config = initialConfig
+local runtime = globals.WaveLiteACS_State
+if type(runtime) ~= "table" or runtime.Session ~= initialConfig.Session then
+    runtime = {Session=initialConfig.Session, Calls=0, Redirected=0, NoTarget=0, Rehooks=0, Respawns=0, HookReady=false, LastEvent="ACS adapter starting", LastError=nil}
+    globals.WaveLiteACS_State = runtime
+end
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local plr = Players.LocalPlayer
+local rp = RaycastParams.new()
+rp.FilterType = Enum.RaycastFilterType.Exclude
+rp.IgnoreWater = true
+local function findPart(model, names)
+    for _, name in ipairs(names) do
+        local part = model and model:FindFirstChild(name, true)
+        if part and part:IsA("BasePart") then return part end
+    end
+    return nil
+end
+local aliases = {
+    HumanoidRootPart={"HumanoidRootPart","Torso"}, Head={"Head"}, UpperTorso={"UpperTorso","Torso"},
+    LeftArm={"LeftUpperArm","LeftLowerArm","LeftHand","Left Arm"},
+    RightArm={"RightUpperArm","RightLowerArm","RightHand","Right Arm"},
+    LeftLeg={"LeftUpperLeg","LeftLowerLeg","LeftFoot","Left Leg"},
+    RightLeg={"RightUpperLeg","RightLowerLeg","RightFoot","Right Leg"},
+}
+local function visible(part, model, origin)
+    local character = plr.Character
+    local ignored = {}
+    if character then table.insert(ignored, character) end
+    local acs = workspace:FindFirstChild("ACS_WorkSpace")
+    if acs then
+        local client = acs:FindFirstChild("Client")
+        local server = acs:FindFirstChild("Server")
+        if client then table.insert(ignored, client) end
+        if server then table.insert(ignored, server) end
+    end
+    rp.FilterDescendantsInstances = ignored
+    local direction = part.Position - origin
+    if direction.Magnitude <= 0.01 then return true end
+    local result = workspace:Raycast(origin, direction, rp)
+    return result == nil or result.Instance:IsDescendantOf(model)
+end
+local function getTarget(origin, cfg)
+    if not cfg or not cfg.Enabled then return nil end
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+    local mouse = UIS:GetMouseLocation()
+    local radius = tonumber(cfg.FovRadius) or 150
+    local selected = nil
+    local closest = radius
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == plr then continue end
+        if cfg.TeamCheck and plr.Team ~= nil and player.Team == plr.Team then continue end
+        local model = player.Character
+        if not model or model:FindFirstChildOfClass("ForceField") then continue end
+        if cfg.DeadCheck then
+            local humanoid = model:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health <= 0 then continue end
+        end
+        local parts = {}
+        if cfg.AdaptiveAim then
+            for _, name in ipairs({"HumanoidRootPart","Head","UpperTorso","Torso","LeftUpperArm","RightUpperArm","LeftUpperLeg","RightUpperLeg"}) do
+                local part = findPart(model,{name})
+                if part then table.insert(parts,part) end
+            end
+        else
+            local names = aliases[cfg.AimPart] or {cfg.AimPart or "UpperTorso"}
+            local part = findPart(model,names)
+            if not part then part = findPart(model,{"Head","UpperTorso","Torso"}) end
+            if part then table.insert(parts,part) end
+        end
+        for _, part in ipairs(parts) do
+            local screen,onScreen = camera:WorldToViewportPoint(part.Position)
+            if onScreen and screen.Z > 0 then
+                local distance = (Vector2.new(screen.X,screen.Y)-mouse).Magnitude
+                if distance < closest and (not cfg.WallCheck or visible(part,model,origin)) then
+                    closest = distance
+                    selected = part
+                    if not cfg.AdaptiveAim then break end
+                end
+            end
+        end
+    end
+    return selected
+end
+local tasks = setmetatable({}, {__mode="k"})
+local replacement = type(newcclosure) == "function" and newcclosure or function(fn) return fn end
+local clone = type(clonefunction) == "function" and clonefunction or function(fn) return fn end
+local hookedFunction = nil
+local function installThrowRayCast(fn)
+    if type(fn) ~= "function" then
+        runtime.HookReady = false
+        runtime.LastEvent = "ThrowRayCast not ready; monitoring script environment"
+        return false
+    end
+    if hookedFunction == fn then return true end
+    local original
+    local ok, err = pcall(function()
+        original = clone(hookfunction(fn, replacement(function(...)
+            local args = table.pack(...)
+            local bullet, origin = args[2], args[3]
+            runtime.Calls = (tonumber(runtime.Calls) or 0) + 1
+            runtime.LastCall = os.clock()
+            local cfg = globals.WaveLiteACS_Config
+            if cfg and cfg.Enabled and typeof(origin) == "Vector3"
+                and typeof(bullet) == "Instance" and bullet.Parent then
+                local targetOk, target = pcall(getTarget,origin,cfg)
+                if not targetOk then
+                    runtime.LastError = "Target detection failed: " .. tostring(target)
+                    runtime.LastEvent = "ThrowRayCast called; target detection errored"
+                elseif target then
+                    if tasks[bullet] then pcall(task.cancel,tasks[bullet]); tasks[bullet] = nil end
+                    runtime.Redirected = (tonumber(runtime.Redirected) or 0) + 1
+                    runtime.LastTarget = target.Parent and target.Parent.Name or target.Name
+                    runtime.LastEvent = "Projectile redirected to " .. tostring(runtime.LastTarget)
+                    tasks[bullet] = task.defer(function()
+                        while target and target.Parent and bullet and bullet.Parent do
+                            local current = globals.WaveLiteACS_Config
+                            if not current or not current.Enabled then break end
+                            local velocity = target.AssemblyLinearVelocity or Vector3.zero
+                            local prediction = tonumber(current.Prediction) or 0
+                            pcall(function() bullet.Position = target.Position + velocity * prediction end)
+                            task.wait()
+                        end
+                        tasks[bullet] = nil
+                    end)
+                else
+                    runtime.NoTarget = (tonumber(runtime.NoTarget) or 0) + 1
+                    runtime.LastEvent = "ThrowRayCast called; no target inside FOV"
+                end
+            end
+            return original(table.unpack(args,1,args.n))
+        end)))
+    end)
+    if not ok or type(original) ~= "function" then
+        runtime.HookReady = false
+        runtime.LastError = "ThrowRayCast hook failed: " .. tostring(err)
+        runtime.LastEvent = "Hook installation failed"
+        return false
+    end
+    hookedFunction = fn
+    globals.WaveLiteACS_Function = fn
+    globals.WaveLiteACS_Installed = true
+    globals.WaveLiteACS_HookVersion = 3
+    runtime.HookReady = true
+    runtime.Rehooks = (tonumber(runtime.Rehooks) or 0) + 1
+    runtime.LastError = nil
+    runtime.LastEvent = "ThrowRayCast hook installed/reinstalled"
+    warn("[Wave Lite ACS] ThrowRayCast hook installed/reinstalled")
+    return true
+end
+local env = getsenv(targetScript)
+local initialFunction = rawget(env, "ThrowRayCast")
+if globals.WaveLiteACS_Installed and globals.WaveLiteACS_Function == initialFunction and type(initialFunction) == "function" then
+    -- Reuse an already-installed adapter instead of stacking duplicate hooks when
+    -- the outer controller requests a post-respawn refresh on the same function.
+    hookedFunction = initialFunction
+    runtime.HookReady = true
+    runtime.LastEvent = "Existing ThrowRayCast hook found; monitoring for respawn replacements"
+else
+    if not installThrowRayCast(initialFunction) then error(runtime.LastError or "ACS ThrowRayCast was not found") end
+end
+-- Respawning can recreate ThrowRayCast inside the same Actor/LocalScript. Watch the
+-- environment itself, not only the Actor and LocalScript Instances.
+if globals.WaveLiteACS_WatcherScript == targetScript and globals.WaveLiteACS_WatcherId and globals.WaveLiteACS_WatcherActive then
+    return
+end
+globals.WaveLiteACS_WatcherScript = targetScript
+globals.WaveLiteACS_WatcherId = (tonumber(globals.WaveLiteACS_WatcherId) or 0) + 1
+local watcherId = globals.WaveLiteACS_WatcherId
+globals.WaveLiteACS_WatcherActive = true
+plr.CharacterAdded:Connect(function()
+    runtime.Respawns = (tonumber(runtime.Respawns) or 0) + 1
+    runtime.LastEvent = "Character respawned; monitoring ACS function replacement"
+    task.delay(0.35,function()
+        if watcherId ~= globals.WaveLiteACS_WatcherId or not targetScript.Parent then return end
+        local ok, currentEnv = pcall(getsenv,targetScript)
+        local currentFunction = ok and type(currentEnv) == "table" and rawget(currentEnv,"ThrowRayCast") or nil
+        if type(currentFunction) == "function" and currentFunction ~= hookedFunction then
+            installThrowRayCast(currentFunction)
+        end
+    end)
+end)
+task.spawn(function()
+    while watcherId == globals.WaveLiteACS_WatcherId and targetScript and targetScript.Parent do
+        local ok, currentEnv = pcall(getsenv,targetScript)
+        if ok and type(currentEnv) == "table" then
+            local currentFunction = rawget(currentEnv,"ThrowRayCast")
+            if type(currentFunction) == "function" and currentFunction ~= hookedFunction then
+                runtime.LastEvent = "ACS replaced ThrowRayCast; reinstalling hook"
+                installThrowRayCast(currentFunction)
+            elseif type(currentFunction) ~= "function" then
+                runtime.HookReady = false
+                runtime.LastEvent = "Waiting for ACS to recreate ThrowRayCast"
+            end
+        else
+            runtime.HookReady = false
+            runtime.LastError = "Unable to read ACS LocalScript environment after respawn"
+        end
+        task.wait(0.25)
+    end
+    if globals.WaveLiteACS_WatcherId == watcherId then
+        globals.WaveLiteACS_WatcherActive = false
+        runtime.HookReady = false
+        runtime.LastEvent = "ACS watcher stopped; awaiting a new Actor/LocalScript"
+    end
+end)
+warn("[Wave Lite ACS] Respawn-aware ThrowRayCast monitor running")
+]]
+	local acsUpdatePayload = [[
+local config = ...
+getgenv().WaveLiteACS_Config = config
+]]
+	local function buildAcsConfig()
+		return {
+			-- Workspace raycast matches are not proof that the weapon's projectile path is working.
+			-- Keep the ACS ThrowRayCast adapter enabled for the selected Raycast method even
+			-- when unrelated workspace queries happen to hit the cached target.
+			Enabled=silent.active and silent.enabled,
+			Session=tostring(silent),
+			Method=silent.activeMethod or "Raycast",
+			AimPart=State.AimPart,
+			AdaptiveAim=State.Toggles.AdaptiveAim==true,
+			TeamCheck=State.Toggles.TeamCheck==true,
+			DeadCheck=State.Toggles.DeadCheck==true,
+			WallCheck=State.Toggles.WallCheck==true,
+			FovRadius=tonumber(State.Sliders.SilentFovRadius) or 150,
+			Prediction=tonumber(State.Sliders.SilentPrediction) or 0,
+		}
+	end
+	local function findAcsActor()
+		local playerScripts=LocalPlayer:FindFirstChild("PlayerScripts")
+		if not playerScripts then return nil,nil end
+		local actors={}
+		if type(get_actors)=="function" then
+			local ok,result=pcall(get_actors)
+			if ok and type(result)=="table" then actors=result end
+		end
+		if #actors==0 then
+			local actor=playerScripts:FindFirstChildOfClass("Actor")
+			if actor then table.insert(actors,actor) end
+		end
+		for _,actor in ipairs(actors) do
+			if actor and actor.Parent==playerScripts then
+				local targetScript=actor:FindFirstChildOfClass("LocalScript")
+				if targetScript then return actor,targetScript end
+			end
+		end
+		return nil,nil
+	end
+	local function acsConfigSignature(cfg)
+		return table.concat({tostring(cfg.Enabled),tostring(cfg.Method),tostring(cfg.AimPart),tostring(cfg.AdaptiveAim),tostring(cfg.TeamCheck),tostring(cfg.DeadCheck),tostring(cfg.WallCheck),tostring(cfg.FovRadius),tostring(cfg.Prediction)},"|")
+	end
+	task.spawn(function()
+		-- Match the reference ACS script's delayed injection so ThrowRayCast has time to initialize.
+		task.wait(1)
+		local lastActor,lastScript,lastSignature=nil,nil,nil
+		while silent.active and ScreenGui.Parent do
+			local acsWorkspace=workspace:FindFirstChild("ACS_WorkSpace")
+			if acsWorkspace then
+				if type(run_on_actor)~="function" then
+					silent.acsStatus="ACS found; executor lacks run_on_actor"
+				else
+					local actor,targetScript=findAcsActor()
+					if not actor or not targetScript then
+						silent.acsStatus="ACS found; waiting for Actor script"
+					else
+						local config=buildAcsConfig()
+						local signature=acsConfigSignature(config)
+						local forceRebind=silent.acsRebindRequested and os.clock()>=(silent.acsRebindAt or 0)
+						if actor~=lastActor or targetScript~=lastScript or forceRebind then
+							silent.acsStatus=forceRebind and "rebinding ThrowRayCast after respawn" or "installing ThrowRayCast adapter"
+							local ok,err=pcall(run_on_actor,actor,acsInstallPayload,actor,targetScript,config)
+							if ok then
+								silent.acsActor=actor;silent.acsScript=targetScript
+								silent.acsStatus=config.Enabled and "ThrowRayCast enabled; watching respawn/function swaps" or "adapter installed; disabled"
+								silent.acsRebindRequested=false
+								logDiagnostic("INFO",config.Enabled and "ACS ThrowRayCast adapter submitted; respawn monitor active" or "ACS ThrowRayCast adapter installed but disabled")
+								lastActor,lastScript,lastSignature=actor,targetScript,signature
+							else
+								silent.acsStatus="install error: "..tostring(err)
+								logDiagnostic("ERROR","ACS adapter install failed: "..tostring(err),"acsInstall")
+								lastActor,lastScript,lastSignature=nil,nil,nil
+							end
+						elseif signature~=lastSignature then
+							local ok,err=pcall(run_on_actor,actor,acsUpdatePayload,config)
+							if ok then
+								silent.acsStatus=config.Enabled and "ThrowRayCast enabled; awaiting projectile" or "adapter installed; disabled"
+								logDiagnostic("INFO",config.Enabled and "ACS ThrowRayCast adapter enabled" or "ACS ThrowRayCast adapter disabled")
+							else
+								silent.acsStatus="config update error: "..tostring(err)
+								logDiagnostic("ERROR","ACS adapter config update failed: "..tostring(err),"acsUpdate")
+							end
+							lastSignature=signature
+						end
+					end
+				end
+			else
+				silent.acsStatus="ACS not detected"
+				lastActor,lastScript,lastSignature=nil,nil,nil
+			end
+			task.wait(0.5)
+		end
+	end)
+
+	if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
+		local function handleNamecall(self,...)
+			if not silent.active or not silent.enabled or self~=workspace or silent.fallbackProbe then return oldNamecall(self,...) end
+			local method=getnamecallmethod()
+			if type(checkcaller)=="function" then
+				local ok,own=pcall(checkcaller)
+				if ok and own then return oldNamecall(self,...) end
+			end
+			silent.totalObserved+=1
+			silent.methodCounts[method]=(silent.methodCounts[method] or 0)+1
 			local args=table.pack(...)
 			if not validateOriginalArguments(method,args) then
-				silent.lastReject = "Unexpected arguments for " .. tostring(method)
+				if silent.lastDetectedMethod~=method then
+					silent.lastDetectedMethod=method
+					logDiagnostic("INFO","Observed unsupported/non-ray workspace call: "..tostring(method))
+				end
 				return oldNamecall(self,...)
+			end
+			recordAutoMethod(method)
+			local selected=silent.activeMethod or "Raycast"
+			local canonical=normalizeRayMethod(method)
+			-- Keep the established Worldspace Raycast path unchanged. Legacy adapters
+			-- are narrower: only route them inside a recent Tool.Activated / M1 shot window.
+			if canonical~="Raycast" and not recentShotRecord() then return oldNamecall(self,...) end
+			if canonical~=selected then
+				if silent.lastDetectedMethod~=method then
+					silent.lastDetectedMethod=method
+					logDiagnostic("INFO","Observed "..tostring(method).."; Auto backend remains "..tostring(selected).." until firing evidence is stronger")
+				end
+				return oldNamecall(self,...)
+			end
+			silent.observed+=1
+			if silent.lastMethod~=method then
+				silent.lastMethod=method
+				logDiagnostic("INFO","Auto routed shot-window-correlated call: "..tostring(method))
 			end
 			local origin=method=="Raycast" and args[1] or args[1].Origin
-			local newDirection=getOriginalDirection(origin,cache.position)
-			if not newDirection then
-				silent.lastReject = "Target too close to ray origin"
-				return oldNamecall(self,...)
-			end
-			if method=="Raycast" then
-				args[2]=newDirection
+			local cache=canRedirect()
+			if cache then
+				local newDirection=getOriginalDirection(origin,cache.position)
+				if newDirection then
+					if method=="Raycast" then args[2]=newDirection else args[1]=Ray.new(origin,newDirection) end
+					silent.redirected+=1
+					local primaryResult=table.pack(oldNamecall(self,table.unpack(args,1,args.n)))
+					if resultHitsTarget(method,primaryResult,cache) then
+						silent.primaryHits+=1
+						silent.lastReject=nil
+						return table.unpack(primaryResult,1,primaryResult.n)
+					end
+					local fallbackResult=useWorldspaceFallback(self,args,origin,method)
+					if fallbackResult then return table.unpack(fallbackResult,1,fallbackResult.n) end
+					silent.lastReject=silent.lastReject or "Primary path missed and universal fallback did not confirm target"
+					logDiagnostic("INFO",silent.lastReject,"primaryMiss")
+					return table.unpack(primaryResult,1,primaryResult.n)
+				end
+				silent.lastReject="Primary path could not build a direction to target"
+				logDiagnostic("ERROR",silent.lastReject,"primaryDirection")
 			else
-				args[1]=Ray.new(origin,newDirection)
+				local fallbackResult=useWorldspaceFallback(self,args,origin,method)
+				if fallbackResult then return table.unpack(fallbackResult,1,fallbackResult.n) end
+				silent.lastReject=silent.lastReject or "No fresh target cache; universal fallback found no hit"
 			end
-			silent.redirected+=1
-			silent.lastReject=nil
-			return oldNamecall(self,table.unpack(args,1,args.n))
+			return oldNamecall(self,...)
+		end
+		local callback=function(self,...)
+			local originalArgs=table.pack(...)
+			local ok,result=pcall(function()
+				return table.pack(handleNamecall(self,table.unpack(originalArgs,1,originalArgs.n)))
+			end)
+			if not ok then
+				logDiagnostic("ERROR","Namecall handler exception: "..tostring(result),"namecallException")
+				return oldNamecall(self,table.unpack(originalArgs,1,originalArgs.n))
+			end
+			return table.unpack(result,1,result.n)
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
-		local ok=pcall(function()oldNamecall=hookmetamethod(game,"__namecall",closure)end)
+		local ok,err=pcall(function()oldNamecall=hookmetamethod(game,"__namecall",closure)end)
 		silent.hooked=ok and type(oldNamecall)=="function"
+		if silent.hooked then logDiagnostic("INFO","Workspace namecall hook installed")
+		else logDiagnostic("ERROR","Workspace namecall hook failed: "..tostring(err or oldNamecall)) end
+	else
+		logDiagnostic("ERROR","Executor missing hookmetamethod or getnamecallmethod")
 	end
 	local oldIndex
 	if type(hookmetamethod)=="function" then
 		local callback=function(self,key)
-			if not silent.active or not silent.enabled or self~=silent.mouse or State.SilentMethod~="Mouse.Hit/Target" then return oldIndex(self,key) end
+			if not silent.active or not silent.enabled or self~=silent.mouse then return oldIndex(self,key) end
 			if key~="Hit" and key~="hit" and key~="Target" and key~="target" then return oldIndex(self,key) end
+			local shotRecord=recentShotRecord()
+			if shotRecord then
+				silent.methodCounts["Mouse.Hit/Target"]=(silent.methodCounts["Mouse.Hit/Target"] or 0)+1
+				recordAutoMethod("Mouse.Hit/Target")
+			end
+			if silent.activeMethod~="Mouse.Hit/Target" or not shotRecord then return oldIndex(self,key) end
+			silent.observed+=1
+			if silent.lastMethod~="Mouse.Hit/Target" then
+				silent.lastMethod="Mouse.Hit/Target"
+				logDiagnostic("INFO","Auto routed shot-window-correlated Mouse.Hit/Target access")
+			end
 			local cache=canRedirect()
 			if not cache then return oldIndex(self,key) end
 			silent.redirected+=1
@@ -3342,7 +3982,8 @@ function __WaveLiteSetupSilent()
 			return CFrame.new(cache.position)
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
-		pcall(function()oldIndex=hookmetamethod(game,"__index",closure)end)
+		local ok,err=pcall(function()oldIndex=hookmetamethod(game,"__index",closure)end)
+		if not ok then logDiagnostic("ERROR","Mouse index hook failed: "..tostring(err),"mouseHook") end
 	end
 	_G.WaveLite_Silent_Toggle=function(on)
 		if type(on)=="boolean" then silent.enabled=on else silent.enabled=not silent.enabled end
@@ -3354,13 +3995,19 @@ function __WaveLiteSetupSilent()
 			if refreshToggleVisual then refreshToggleVisual("Camlock") end
 		end
 		if not silent.enabled then silent.cache=nil;silent.player=nil end
+		logDiagnostic("INFO",silent.enabled and "Silent Aim enabled" or "Silent Aim disabled")
 		if refreshToggleVisual then refreshToggleVisual("Silent") end
 	end
 	connect(LocalPlayer.CharacterAdded,function()
+		if silent.toolConnection then silent.toolConnection:Disconnect(); silent.toolConnection=nil end
 		silent.tool=nil
 		silent.cache=nil
 		silent.player=nil
 		silent.shotUntil=0
+		silent.acsRebindRequested=true
+		silent.acsRebindAt=os.clock()+1
+		silent.acsStatus="respawn detected; waiting to refresh ACS hook"
+		logDiagnostic("INFO","Character respawned; refreshing ACS ThrowRayCast hook")
 	end)
 	connect(Players.PlayerRemoving,function(player)
 		if silent.player==player then silent.player=nil;silent.cache=nil end
@@ -3384,11 +4031,29 @@ function __WaveLiteSetupSilent()
 		return {
 			HookReady=silent.hooked,
 			Enabled=silent.enabled,
-			Method=State.SilentMethod,
+			Mode="Auto",
+			Method=silent.activeMethod or "Raycast",
+			ActiveMethod=silent.activeMethod or "Raycast",
+			AutoReason=silent.autoReason,
+			AutoChanges=silent.autoChanges,
+			MethodEvidence=silent.methodEvidence,
+			LastShotSource=silent.lastShotSource,
 			LastMethod=silent.lastMethod,
 			Observed=silent.observed,
+			TotalObserved=silent.totalObserved,
+			MethodCounts=silent.methodCounts,
+			LastDetectedMethod=silent.lastDetectedMethod,
 			Redirected=silent.redirected,
+			PrimaryHits=silent.primaryHits,
 			LastReject=silent.lastReject,
+			LastError=silent.lastError,
+			FallbackAttempts=silent.fallbackAttempts,
+			FallbackDetections=silent.fallbackDetections,
+			FallbackUsed=silent.fallbackUsed,
+			FallbackHits=silent.fallbackHits,
+			FallbackLastTarget=silent.fallbackLastTarget,
+			AcsRuntime=(function() local state=readAcsRuntime(); return state and {HookReady=state.HookReady,Calls=state.Calls,Redirected=state.Redirected,NoTarget=state.NoTarget,Rehooks=state.Rehooks,Respawns=state.Respawns,LastEvent=state.LastEvent,LastError=state.LastError} or nil end)(),
+			Diagnostics=table.concat(silent.diagnostics,"\n"),
 			Target=silent.player and silent.player.Name or nil,
 		}
 	end
@@ -3396,6 +4061,9 @@ function __WaveLiteSetupSilent()
 		if parent then return end
 		silent.active=false
 		silent.enabled=false
+		if silent.acsActor and type(run_on_actor)=="function" then
+			pcall(run_on_actor,silent.acsActor,acsUpdatePayload,{Enabled=false,Method=silent.activeMethod or "Raycast"})
+		end
 		if silent.toolConnection then silent.toolConnection:Disconnect() end
 		for _,c in ipairs(silent.connections) do pcall(function()c:Disconnect()end) end
 		if _G.WaveLiteSilentHookContext==silent then _G.WaveLiteSilentHookContext=nil end
