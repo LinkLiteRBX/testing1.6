@@ -1,5 +1,4 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/LinkLiteRBX/testing/refs/heads/main/test.lua"))()
-
 local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
@@ -9,14 +8,9 @@ local Lighting         = game:GetService("Lighting")
 local HttpService      = game:GetService("HttpService")
 local TextService      = game:GetService("TextService")
 local VirtualUser      = game:GetService("VirtualUser")
-
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-
--- global connections (UserInputService etc). Unload UI disconnects all of these.
 local Connections = {}
-
------------------------------------------------------------------- cleanup
 local WaveGuiName = "Wave1.5"
 local function destroyIfExists(parent, name)
 	pcall(function()
@@ -29,13 +23,6 @@ local function cleanupWaveGui(parent)
 	destroyIfExists(parent, "Wave1.5Esp")
 end
 cleanupWaveGui(CoreGui)
-pcall(function() if gethui then cleanupWaveGui(gethui()) end end)
-pcall(function()
-	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if pg then cleanupWaveGui(pg) end
-end)
-
------------------------------------------------------------------- state (UI values only)
 local State = {
 	Sliders = {
 		Prediction = 0.007, Smoothness = 2.50,
@@ -45,21 +32,19 @@ local State = {
 	},
 	Toggles = {
 		Noclip = false, Fly = false,
-		NameEsp = false, BoxOutline = false, Box3D = false, Tracers = false,
-		FriendEsp = false, EspTeamCheck = false, Skeleton = false, Outlines = false, Distance = false, HealthBars = false, ShowItems = false, Box3DCorners = false,
+		NameEsp = false, BoxOutline = false, Box3D = false, Tracers = false, FriendEsp = false,
+		EspTeamCheck = false, Skeleton = false, Distance = false, HealthBars = false, ShowItems = false, Box3DCorners = false,
 		NoFog = false, DisableShadows = false, LowGfx = false, Maxzoom = false,
 		FovCircle = false, SilentFovCircle = false, AdaptiveAim = false,
 		TeamCheck = true, FriendCheck = false, WallCheck = false, DeadCheck = true, StickyAim = false, TargetUI = false,
 		Camlock = false, Silent = false, AntiAfk = false, InfJump = false, AntiSeat = false,
 		AutoPickup = false, Spinbot = false, BoxCorners = false,
-		-- settings page
 		UIBlur = false, UIShadow = true, ArrayList = true, AutoLoad = false,
 	},
 	Keybinds = { CamLockToggle = nil, SilentToggle = nil, FlyToggle = nil, TweenClickTpToggle = nil, MenuToggle = "Insert" },
 	AimPart = "UpperTorso", SilentMethod = "Raycast", EspUpdateRate = "Auto", FlyType = "CFrame", TpMode = "Tween",
 	Theme = "None", ArrayPosition = "Btm Left", Preset = "Daydream",
 }
-
 local FriendChecks = {}
 do
 	local friendCache = setmetatable({}, { __mode = "k" })
@@ -93,7 +78,6 @@ do
 	FriendChecks.isFriend = isFriend
 	FriendChecks.passes = passesFriendCheck
 end
-
 local SliderConfig = {
 	Prediction = { Min = 0, Max = 0.10, Decimals = 3 }, Smoothness = { Min = 1, Max = 10, Decimals = 2 },
 	SilentPrediction = { Min = 0, Max = 0.10, Decimals = 3 },
@@ -101,11 +85,6 @@ local SliderConfig = {
 	FlySpeed = { Min = 1, Max = 50, Decimals = 2 }, FlyMultiplier = { Min = 0.25, Max = 10, Decimals = 2 },
 	TweenTpSpeed = { Min = 5, Max = 250, Decimals = 0 }, SpinSpeed = { Min = 1, Max = 100, Decimals = 0 },
 }
-
-local GuiParent = CoreGui
-pcall(function() if gethui then GuiParent = gethui() end end)
-
------------------------------------------------------------------- site assets (logo / theme icons)
 local SiteRoot = "https://shimmering-babka-52d2f9.netlify.app"
 local SiteAssets = {
 	logo = "logo.png",
@@ -147,8 +126,6 @@ local function getSiteAsset(name)
 	if success and type(asset) == "string" and asset ~= "" then return asset end
 	return nil
 end
-
--- Resolves a Decal asset id to its actual image texture (used for the dropdown chevron)
 local function resolveDecalTexture(assetId)
 	local function normalize(reference)
 		if type(reference) ~= "string" or reference == "" then return nil end
@@ -166,7 +143,6 @@ local function resolveDecalTexture(assetId)
 		end
 		return nil
 	end
-
 	local requester = resolveRequest()
 	local body
 	if requester then
@@ -180,7 +156,6 @@ local function resolveDecalTexture(assetId)
 		local texture = normalize(ref)
 		if texture then return texture end
 	end
-
 	local ok, objects = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(assetId)) end)
 	if ok and type(objects) == "table" then
 		for _, object in ipairs(objects) do
@@ -192,7 +167,6 @@ local function resolveDecalTexture(assetId)
 		end
 		for _, object in ipairs(objects) do pcall(function() object:Destroy() end) end
 	end
-
 	local insertOk, model = pcall(function() return game:GetService("InsertService"):LoadAsset(tonumber(assetId)) end)
 	if insertOk and model then
 		local texture = readTexture(model)
@@ -201,8 +175,6 @@ local function resolveDecalTexture(assetId)
 	end
 	return nil
 end
-
------------------------------------------------------------------- themes
 local Themes = {
 	dark = {
 		Background = Color3.fromRGB(22,22,26), Panel = Color3.fromRGB(28,28,33), Body = Color3.fromRGB(24,24,29),
@@ -221,7 +193,6 @@ local Themes = {
 		Scroll = Color3.fromRGB(145,150,163), BlurBranch = Color3.fromRGB(248,249,252), BlurPill = Color3.fromRGB(242,245,250),
 	},
 }
--- Toggle / slider palette. SliderFill is the accent color (toggles and sliders pick it up).
 Themes.dark.Highlight    = Color3.fromRGB(255,255,255)
 Themes.light.Highlight   = Color3.fromRGB(0,0,0)
 Themes.dark.Track        = Color3.fromRGB(51,51,56)
@@ -231,21 +202,15 @@ Themes.dark.ToggleKnobOn = Color3.fromRGB(255,255,255)
 Themes.light.SliderFill   = Color3.fromRGB(40,42,48)
 Themes.light.ToggleOff    = Color3.fromRGB(255,255,255)
 Themes.light.ToggleKnobOn = Color3.fromRGB(255,255,255)
--- dropdown chevron tint
 Themes.dark.Chevron  = Color3.fromRGB(190,192,200)
 Themes.light.Chevron = Color3.fromRGB(96,101,112)
--- wave logo / header icon / settings icon tint
 Themes.dark.Logo  = Color3.fromRGB(255,255,255)
 Themes.light.Logo = Color3.fromRGB(25,25,30)
-
--- Presets. Each preset has a dark and a light variant: Accent (toggle on-pill, slider fill, logo, icons),
--- Track (toggle off-pill / on-dot, slider track) and, for dark, an optional Background. Outlines, rules,
--- scroll bars, chevrons and dropdown/keybind boxes are derived from the accent. "None" is the base palette.
 local buildTheme
 local PresetNames = { "None", "Dracula", "Chocolate", "Nord", "Ocean", "Rose", "Light" }
 local PresetSet = {}
 for _, n in ipairs(PresetNames) do PresetSet[n] = true end
-local BackdropSet = { None = true, Daydream = true } -- available image backdrop presets
+local BackdropSet = { None = true, Daydream = true }
 do
 local function C(r, g, b) return Color3.fromRGB(r, g, b) end
 local BaseThemes = {}
@@ -276,13 +241,9 @@ local Presets = {
 		light = { Accent = C(190,60,100),  Track = C(215,190,198) },
 	},
 }
--- Backdrop presets (Settings > Appearance > Presets) are a full look, not just an image: while one is active its
--- palette replaces the Theme dropdown colours (dark mode only). Accent = toggle on-pill, slider fill, logo, settings
--- icon; Track = toggle off-pill / on-dot and slider track. Lines, scroll bars, chevrons and boxes follow the accent.
 local BackdropPalettes = {
-	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) }, -- sunset leaves over dusk purple
+	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) },
 }
--- rebuilds Themes[mode] in place from the base palette + the selected preset (State.Theme)
 buildTheme = function(mode)
 	local t, base = Themes[mode], BaseThemes[mode]
 	for k, v in pairs(base) do t[k] = v end
@@ -313,10 +274,8 @@ end
 end
 buildTheme("dark")
 buildTheme("light")
-
 local currentThemeName = "dark"
 local Theme = Themes.dark
-
 local themedObjects  = {}
 local themedSliders  = {}
 local themedKeybinds = {}
@@ -325,13 +284,12 @@ local themedToggles  = {}
 local keybindSyncs   = {}
 local choiceSyncs    = {}
 local arrayListLabels = {}
-local ToggleCallbacks = {} -- [stateName] = function(newValue), used by the settings toggles
+local ToggleCallbacks = {}
 local TemporarilyDisabledToggles = {
 	TargetUI = true,
 }
 local DisabledToggleTextColor = Color3.fromRGB(235, 76, 76)
 local refreshArrayList
-
 local function registerThemed(obj, prop, role)
 	local entry = { obj = obj, prop = prop, role = role }
 	table.insert(themedObjects, entry)
@@ -341,13 +299,11 @@ local function unregisterThemed(entry)
 	local i = table.find(themedObjects, entry)
 	if i then table.remove(themedObjects, i) end
 end
-
 local objectNameCounter = 0
 local function nextObjectName()
 	objectNameCounter += 1
 	return string.format("x%02da", objectNameCounter)
 end
--- Parent is assigned last so properties aren't set on an already-parented instance
 local function make(className, props)
 	local obj = Instance.new(className)
 	local parent
@@ -362,9 +318,6 @@ end
 local function tween(obj, t, props)
 	TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
 end
-
--- Only one dropdown is open at a time. Each dropdown registers its close function here while open.
--- objects of any open/closed dropdown popup the mouse is currently over (rows behind must not highlight)
 local dropdownHovered = {}
 local function isOverDropdown()
 	return next(dropdownHovered) ~= nil
@@ -375,15 +328,10 @@ local function closeDropdown()
 	activeDropdownClose = nil
 	if close then pcall(close) end
 end
-
--- After a keybind is captured from a mouse button, the click that finished the capture must not
--- also press whatever is under the cursor (toggle, button, slider...). Controls check inputBlocked().
 local keybindClickBlockUntil = 0
 local function inputBlocked()
 	return os.clock() < keybindClickBlockUntil
 end
-
------------------------------------------------------------------- helpers
 local function inputToKeyName(input)
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		local name = input.KeyCode.Name
@@ -423,7 +371,6 @@ local function alphaToValue(sliderName, alpha)
 	if not config then return math.clamp(alpha, 0, 1) end
 	return tonumber(formatValue(sliderName, config.Min + (config.Max - config.Min) * alpha))
 end
-
 local themeDuration = 0.40
 local themeTweens = {}
 local function themeValue(obj, property, value, animate)
@@ -443,7 +390,6 @@ local function themeValue(obj, property, value, animate)
 	end
 	pcall(function() obj[property] = value end)
 end
-
 local function applyTheme(themeName, animate)
 	currentThemeName = themeName
 	Theme = Themes[themeName]
@@ -472,41 +418,26 @@ local function applyTheme(themeName, animate)
 	end
 	if refreshArrayList then refreshArrayList() end
 end
------------------------------------------------------------------- root gui
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = WaveGuiName
-ScreenGui.Parent = GuiParent
+ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.DisplayOrder = 1000
 pcall(function() if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end end)
-
 local MainWidth, MainHeight = 460, 525
 local HeaderHeight, BottomHeight, BodyPadding = 38, 24, 8
 local PanelWidth = MainWidth - BodyPadding * 2
 local SideHeight = MainHeight - HeaderHeight - BottomHeight - 12
 local RowHeight, SliderRowHeight = 22, 32
--- Spacing system: every item inside a section (row, slider, keybind, dropdown, nested section,
--- and the first row under a header) is separated by RowGap. Top-level sections are separated by SectionGap.
--- Nothing adds trailing space after a section's last item, so open/closed or slider/toggle endings never change gaps.
--- SectionGap is the gap between every category, including Esp -> Player (EspBottomGap stays 0 so the
--- Box Esp sub-category ends with the same spacing as any other category).
 local RowGap, SectionGap = 4, 5
 local EspBottomGap = 0
--- Section header divider line: even header heights put the line exactly on the header's centerline;
--- RuleNudge shifts it (in px, +down) if you want to fine-tune it against the title text.
 local RuleNudge = 0
 local ToggleWidth, ToggleHeight = 30, 16
--- Background transparency shared by the dropdown-style controls (dropdown boxes, keybind boxes, text boxes, buttons).
--- 0 = solid, 1 = invisible. Higher = more see-through / glassy, lower = more solid.
 local ControlTransparency = 0.15
-
--- Dropdown sizing: every dropdown in the UI uses this one width, so long option names must be abbreviated.
 local DropdownWidth, DropdownHeaderHeight, DropdownOptionHeight = 90, 18, 18
--- dropdown lists taller than this many options scroll
 local MaxDropdownOptions = 8
-
 local Main = make("Frame", {
 	Parent = ScreenGui, Size = UDim2.fromOffset(MainWidth, MainHeight),
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
@@ -516,7 +447,6 @@ registerThemed(Main, "BackgroundColor3", "Background")
 make("UICorner", { Parent = Main, CornerRadius = UDim.new(0, 4) })
 local MainStroke = make("UIStroke", { Parent = Main, Color = Theme.Border, Thickness = 1 })
 registerThemed(MainStroke, "Color", "Border")
--- UI Shadow toggle (settings) fades this object: on = ShadowOnTransparency, off = fully transparent
 local ShadowObj
 local ShadowOnTransparency = 0.46
 pcall(function()
@@ -531,40 +461,29 @@ pcall(function()
 	shadow.Parent = Main
 	ShadowObj = shadow
 end)
-
------------------------------------------------------------------- preset backdrop (image behind the menu)
--- Picked from Settings > Appearance > Presets. The image is an un-blurred picture inside the window, under every
--- control, with a tint + inner shadow on top so it reads as an image sitting behind a glass pane.
--- (The old inset "pane" outline was removed: it drew a second, smaller frame inside the real UI.)
 local setBackdropPreset
 do
-	-- Daydream is the only image preset. None hides the backdrop.
 	local PresetSiteRoot = "https://bright-halva-7d5837.netlify.app"
 	local PresetFiles = { Daydream = "daydream_ui.jpg" }
 	local PresetCacheTag = "v1"
-
 	local ImageBleed = 0
 	local TintTransparency = 0.40
 	local EdgeShadow = 40
-
 	local group = make("CanvasGroup", {
 		Parent = Main, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
 		ZIndex = 0, GroupTransparency = 1, Visible = false, Active = false,
 	})
 	make("UICorner", { Parent = group, CornerRadius = UDim.new(0, 4) })
-
 	local image = make("ImageLabel", {
 		Parent = group, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.new(1, ImageBleed * 2, 1, ImageBleed * 2), BackgroundTransparency = 1, Image = "",
 		ScaleType = Enum.ScaleType.Crop, ZIndex = 1,
 	})
-
 	local tint = make("Frame", {
 		Parent = group, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Body,
 		BackgroundTransparency = TintTransparency, BorderSizePixel = 0, ZIndex = 2,
 	})
 	registerThemed(tint, "BackgroundColor3", "Body")
-
 	local sheen = make("Frame", {
 		Parent = group, Size = UDim2.new(1, 0, 0.45, 0), BackgroundColor3 = Color3.new(1, 1, 1),
 		BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 3,
@@ -573,7 +492,6 @@ do
 		Parent = sheen, Rotation = 90,
 		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.92), NumberSequenceKeypoint.new(1, 1) }),
 	})
-
 	local function edge(size, anchor, position, rotation, vertical)
 		local frame = make("Frame", {
 			Parent = group, AnchorPoint = anchor, Position = position, BackgroundColor3 = Color3.new(0, 0, 0),
@@ -589,7 +507,6 @@ do
 	edge(EdgeShadow, Vector2.new(0, 1), UDim2.fromScale(0, 1), 270, true)
 	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 0, false)
 	edge(EdgeShadow, Vector2.new(1, 0), UDim2.fromScale(1, 0), 180, false)
-
 	local assetCache = {}
 	local function loadAsset(name)
 		if assetCache[name] then return assetCache[name] end
@@ -626,7 +543,6 @@ do
 		if not pcall(writefile, path, body) then return nil end
 		return register()
 	end
-
 	local token = 0
 	local fadeTween
 	local function fadeTo(value, duration)
@@ -637,7 +553,6 @@ do
 		fadeTween:Play()
 		return fadeTween
 	end
-
 	setBackdropPreset = function(name)
 		if not BackdropSet[name] then name = "None" end
 		State.Preset = name
@@ -645,7 +560,6 @@ do
 		buildTheme("light")
 		applyTheme(currentThemeName, true)
 		for _, sync in ipairs(choiceSyncs) do pcall(sync) end
-
 		token += 1
 		local mine = token
 		tween(tint, 0.4, { BackgroundTransparency = TintTransparency })
@@ -656,7 +570,6 @@ do
 			end)
 			return
 		end
-
 		task.spawn(function()
 			local asset = loadAsset(name)
 			if mine ~= token then return end
@@ -676,11 +589,7 @@ do
 		end)
 	end
 end
-
-
------------------------------------------------------------------- background blur / glass (visual only)
--- Off by default (State.Toggles.UIBlur). Enable creates the depth-of-field effect + the two glass parts and binds
--- the render step; Disable destroys all of it and sweeps the world for leftovers. Fix does a full off/on.
+local unloadingUI = false
 local BlurController = (function()
 	local BlurRenderName = "Wave1.5 Blur Render"
 	local BlurEffectName = "Wave1.5 Blur"
@@ -691,7 +600,6 @@ local BlurController = (function()
 	local blurParts, blurMeshes = {}, {}
 	local enabled = false
 	local cameraConn
-
 	local function sweepWorld()
 		pcall(function() RunService:UnbindFromRenderStep(BlurRenderName) end)
 		for _, o in ipairs(Lighting:GetChildren()) do
@@ -705,7 +613,6 @@ local BlurController = (function()
 			end
 		end
 	end
-
 	local function hideAll()
 		for _, p in ipairs(blurParts) do p.Transparency = 1 end
 		if effect then effect.Enabled = false end
@@ -715,7 +622,6 @@ local BlurController = (function()
 		if math.abs(denom) < 0.00001 then return nil end
 		return origin + dir * (-normal:Dot(origin - planePos) / denom)
 	end
-
 	local function updateGeometry()
 		if not enabled or not effect then return end
 		local camera = workspace.CurrentCamera
@@ -750,12 +656,10 @@ local BlurController = (function()
 		effect.Enabled = true
 		effect.FocusDistance = 0.25 - camera.NearPlaneZ
 	end
-
 	local function glassTween(obj, transparency)
 		if not obj or not obj.Parent or not obj:IsA("GuiObject") then return end
 		TweenService:Create(obj, TweenInfo.new(themeDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = transparency }):Play()
 	end
-	-- blur on: see-through glass. blur off: solid.
 	local function applyGlass()
 		for _, e in ipairs(themedObjects) do
 			if e.prop == "BackgroundColor3" then
@@ -767,7 +671,6 @@ local BlurController = (function()
 			end
 		end
 	end
-
 	local function Enable()
 		if enabled then return end
 		sweepWorld()
@@ -779,7 +682,6 @@ local BlurController = (function()
 		effect.FocusDistance = 0.25
 		effect.InFocusRadius = 0
 		effect.Parent = Lighting
-
 		blurParts, blurMeshes = {}, {}
 		for i = 1, 2 do
 			local part = Instance.new("Part")
@@ -794,15 +696,14 @@ local BlurController = (function()
 			mesh.Parent = part
 			blurParts[i], blurMeshes[i] = part, mesh
 		end
-
 		enabled = true
 		RunService:BindToRenderStep(BlurRenderName, Enum.RenderPriority.Last.Value, updateGeometry)
 		cameraConn = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() task.defer(updateGeometry) end)
 		applyGlass()
 		updateGeometry()
 	end
-
-	local function Disable()
+	local function Disable(skipGlass)
+		if not enabled and not effect and not cameraConn and #blurParts == 0 then return end
 		enabled = false
 		pcall(function() RunService:UnbindFromRenderStep(BlurRenderName) end)
 		if cameraConn then cameraConn:Disconnect() cameraConn = nil end
@@ -814,10 +715,8 @@ local BlurController = (function()
 		for _, p in ipairs(blurParts) do pcall(function() p:Destroy() end) end
 		blurParts, blurMeshes = {}, {}
 		sweepWorld()
-		applyGlass()
+		if not skipGlass and not unloadingUI then applyGlass() end
 	end
-
-	-- full reset: everything off and swept, then back on if the toggle is on
 	local function Fix()
 		Disable()
 		sweepWorld()
@@ -827,12 +726,10 @@ local BlurController = (function()
 			end)
 		end
 	end
-
 	ScreenGui.AncestryChanged:Connect(function(_, parent)
 		if parent then return end
-		Disable()
+		Disable(true)
 	end)
-
 	sweepWorld()
 	applyGlass()
 	return {
@@ -841,13 +738,10 @@ local BlurController = (function()
 		Enable = Enable,
 		Disable = Disable,
 		Fix = Fix,
-		Destroy = Disable,
+		Destroy = function() Disable(true) end,
 		IsEnabled = function() return enabled end,
 	}
 end)()
-
--- Background Blur only runs while no backdrop preset is active (the preset image covers the window, so the
--- blur would be invisible); the toggle keeps its value and resumes when the preset is turned off
 local function syncBlur()
 	local want = State.Toggles.UIBlur and State.Preset == "None"
 	if want and not BlurController.IsEnabled() then
@@ -866,8 +760,6 @@ ToggleCallbacks.UIShadow = function(on)
 		end)
 	end
 end
-
------------------------------------------------------------------- header
 local Header, syncLogoVisibility, syncBlurButton
 do
 Header = make("Frame", {
@@ -879,7 +771,6 @@ local hSep = make("Frame", {
 	BackgroundColor3 = Theme.Border, BorderSizePixel = 0, ZIndex = 12,
 })
 registerThemed(hSep, "BackgroundColor3", "Border")
-
 local LogoHolder = make("Frame", {
 	Parent = Header, Size = UDim2.fromOffset(24, 24), Position = UDim2.fromOffset(9, 7),
 	BackgroundTransparency = 1, BorderSizePixel = 0,
@@ -915,22 +806,16 @@ task.spawn(function()
 	SiteLogoAsset = getSiteAsset("logo")
 	if HeaderLogoImage and HeaderLogoImage.Parent then syncLogoVisibility() end
 end)
--- kept under the old name: re-tints the logo after a theme change
 syncBlurButton = function(animate) syncLogoVisibility(animate) end
-
 end
-
------------------------------------------------------------------- body / footer
 local Body = make("Frame", {
 	Parent = Main, Size = UDim2.new(1, 0, 1, -(HeaderHeight + BottomHeight)),
 	Position = UDim2.fromOffset(0, HeaderHeight), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
--- not clipped, so the scroll bars can sit out in the side margins
 local SharedPanel = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false,
 })
--- second page (settings). The bottom-left gear button swaps between the two pages.
 local SettingsPage = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false, Visible = false,
@@ -950,14 +835,8 @@ local BottomVersion = make("TextLabel", {
 	TextColor3 = Theme.Text, TextSize = 11, Font = Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Right,
 })
 registerThemed(BottomVersion, "TextColor3", "Text")
-
 local setSettingsPage
 do
--- settings button (bottom-left): decal icon with a circle highlight on hover. It is the only way
--- back from the settings page.
--- Put either just the decal id (number) or the full image string, e.g.
---   local SettingsIconAssetId = 1234567890
---   local SettingsIconAssetId = "rbxthumb://type=Asset&id=1234567890&w=150&h=150"
 local SettingsIconAssetId = 76349806024559
 local SettingsOpen = false
 local SettingsBtn = make("TextButton", {
@@ -980,9 +859,6 @@ elseif type(SettingsIconAssetId) == "number" and SettingsIconAssetId ~= 0 then
 		if resolved and resolved ~= "" and SettingsIcon.Parent then SettingsIcon.Image = resolved end
 	end)
 end
--- delayed tick: the mouse has to rest on the icon for SettingsHoverDelay before it ticks to the right.
--- Moving on/off quickly cancels it. Leaving the icon or clicking it ticks it back into place, and after
--- a click it won't tick again until the mouse leaves and re-enters.
 local SettingsHoverDelay = 0.3
 local SettingsTickAngle = 25
 local settingsHoverToken = 0
@@ -1004,7 +880,7 @@ SettingsBtn.MouseEnter:Connect(function()
 	end)
 end)
 SettingsBtn.MouseLeave:Connect(function()
-	settingsHoverToken += 1 -- cancels a pending tick
+	settingsHoverToken += 1
 	settingsClickedWhileHover = false
 	if settingsTicked then
 		settingsTicked = false
@@ -1019,7 +895,6 @@ setSettingsPage = function(state)
 end
 SettingsBtn.MouseButton1Click:Connect(function()
 	if inputBlocked() then return end
-	-- click: cancel any pending tick and click back into place
 	settingsHoverToken += 1
 	settingsClickedWhileHover = true
 	if settingsTicked then
@@ -1029,8 +904,6 @@ SettingsBtn.MouseButton1Click:Connect(function()
 	setSettingsPage(not SettingsOpen)
 end)
 end
-
------------------------------------------------------------------- array list (shows enabled toggles)
 local ArrayListFrame
 local ArrayCornerNames
 local applyArrayPosition
@@ -1046,7 +919,7 @@ local ArrayListNames = {
 	Camlock = "Camlock", Silent = "Silent Aim", Fly = "Fly", Noclip = "Noclip", Maxzoom = "Maxzoom",
 	AntiAfk = "Anti AFK", InfJump = "Inf Jump", AntiSeat = "Anti-Seat", AutoPickup = "Auto Pickup", Spinbot = "Spinbot",
 }
-local EspToggles = { "NameEsp","Tracers","FriendEsp","Skeleton","Outlines","BoxOutline","BoxCorners","Box3D","Box3DCorners","HealthBars","Distance","ShowItems" }
+local EspToggles = { "NameEsp","Tracers","FriendEsp","Skeleton","BoxOutline","BoxCorners","Box3D","Box3DCorners","HealthBars","Distance","ShowItems" }
 ArrayCornerNames = { "Btm Right", "Btm Left", "Top Right", "Top Left" }
 local ArrayCorners = {
 	["Btm Right"] = { left = false, top = false, bottom = true },
@@ -1189,16 +1062,11 @@ ToggleCallbacks.ArrayList = function(on)
 	if on then refreshArrayList() end
 end
 end
-
------------------------------------------------------------------- columns
 local ColumnGap, ColumnPadding = 8, 7
 local AvailableColumnWidth = PanelWidth - ColumnPadding * 2 - ColumnGap
 local LeftColumnWidth = math.floor(AvailableColumnWidth * 0.5)
 local RightColumnWidth = AvailableColumnWidth - LeftColumnWidth
-
--- how far the scroll bars sit out into the side margins (px). 9 ≈ centered between the content and the UI edge.
 local ScrollOut = 9
-
 local function makeSimpleColumn(xOffset, width, side)
 	local isLeft = side == "left"
 	local holder = make("Frame", {
@@ -1231,7 +1099,6 @@ local function makeSimpleColumn(xOffset, width, side)
 end
 local LeftContent = select(3, makeSimpleColumn(ColumnPadding, LeftColumnWidth, "left"))
 local RightContent = select(3, makeSimpleColumn(ColumnPadding + LeftColumnWidth + ColumnGap, RightColumnWidth, "right"))
-
 local function makeControlLabel(parent, text, xOffset, rightReserve, fixedTextColor)
 	local lbl = make("TextLabel", {
 		Parent = parent, Size = UDim2.new(1, -(xOffset + rightReserve), 1, 0), Position = UDim2.fromOffset(xOffset, 0),
@@ -1241,9 +1108,6 @@ local function makeControlLabel(parent, text, xOffset, rightReserve, fixedTextCo
 	if not fixedTextColor then registerThemed(lbl, "TextColor3", "Text") end
 	return lbl
 end
------------------------------------------------------------------- toggle switch (animation only)
--- returns track, activate, rebind(newStateName). rebind points the switch at another state key and
--- slides it to that key's value.
 local function makeToggleSwitch(parent, initialStateName)
 	local stateName = initialStateName
 	local KnobSize, Pad = 7, 4
@@ -1264,7 +1128,6 @@ local function makeToggleSwitch(parent, initialStateName)
 		BackgroundColor3 = enabled and Theme.Track or Theme.SliderFill, BorderSizePixel = 0, ZIndex = track.ZIndex + 2,
 	})
 	make("UICorner", { Parent = knob, CornerRadius = UDim.new(1, 0) })
-
 	local activeTweens = {}
 	local function stopTweens()
 		for _, t in ipairs(activeTweens) do t:Cancel() end
@@ -1289,7 +1152,6 @@ local function makeToggleSwitch(parent, initialStateName)
 		play(knob, 0.16, Enum.EasingStyle.Sine, { BackgroundColor3 = on and Theme.Track or Theme.SliderFill })
 		play(knob, 0.2, Enum.EasingStyle.Quint, { Position = knobPos(on) })
 	end
-
 	local lastActivation = 0
 	local function activateToggle()
 		if inputBlocked() then return end
@@ -1317,10 +1179,7 @@ local function makeToggleSwitch(parent, initialStateName)
 	end
 	return track, activateToggle, rebind
 end
-
------------------------------------------------------------------- keybind box
 local waitingForKey = nil
--- returns Box, rebind(newStateName)
 local function makeKeybindBox(parent, initialStateName, opts)
 	opts = opts or {}
 	local stateName = initialStateName
@@ -1338,7 +1197,6 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	registerThemed(ClearBind, "TextColor3", "Text")
 	registerThemed(ClearBind, "BackgroundColor3", "Highlight")
 	make("UICorner", { Parent = ClearBind, CornerRadius = UDim.new(1, 0) })
-	-- only show the X when a key is actually bound
 	local function syncClear()
 		ClearBind.Visible = not opts.NoClear and Box.Text ~= "Set" and Box.Text ~= ""
 	end
@@ -1356,7 +1214,6 @@ local function makeKeybindBox(parent, initialStateName, opts)
 		if opts.OnChange then pcall(opts.OnChange) end
 	end)
 	table.insert(themedKeybinds, Box)
-	-- used by config load / reset to refresh the shown key
 	table.insert(keybindSyncs, function()
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
 		Box.Text = shortKeyName(State.Keybinds[stateName])
@@ -1364,13 +1221,12 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	Box.MouseEnter:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.CheckboxHover }) end)
 	Box.MouseLeave:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.Checkbox }) end)
 	Box.MouseButton1Click:Connect(function()
-		-- the click that just finished binding a mouse button must not restart the capture
 		if inputBlocked() then return end
 		if waitingForKey and waitingForKey.Box ~= Box then
 			waitingForKey.Box.Text = shortKeyName(State.Keybinds[waitingForKey.Name])
 		end
 		waitingForKey = { Name = stateName, Box = Box, Opts = opts }
-		Box.Text = "" -- empty box while waiting for a key / mouse button (Esc cancels)
+		Box.Text = ""
 	end)
 	local function rebind(newStateName)
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
@@ -1379,16 +1235,12 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	end
 	return Box, rebind
 end
-
------------------------------------------------------------------- slider
 local activeSlider = nil
 local SliderTrackHeight = 5
--- returns Track, ValueLabel, rebind(newSliderName). rebind slides the fill/value to the new slider's value.
 local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, width)
 	local sliderName = initialSliderName
 	local sliderWidth, trackX, trackY = width or 42, xOffset or 0, yOffset or 0
 	local alpha = valueToAlpha(sliderName, State.Sliders[sliderName])
-
 	local Track = make("TextButton", {
 		Parent = parent, Size = UDim2.fromOffset(sliderWidth, SliderTrackHeight), Position = UDim2.fromOffset(trackX, trackY),
 		BackgroundColor3 = Theme.Track, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
@@ -1398,7 +1250,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = Track, Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.SliderFill, BorderSizePixel = 0,
 	})
 	make("UICorner", { Parent = Fill, CornerRadius = UDim.new(1, 0) })
-	-- square cap squares off the fill's right edge so only the track ends are rounded
 	local Cap = make("Frame", {
 		Parent = Track, Size = UDim2.fromOffset(0, SliderTrackHeight), BackgroundColor3 = Theme.SliderFill,
 		BorderSizePixel = 0, Visible = false,
@@ -1410,7 +1261,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	})
 	local sliderEntry = { track = Track, fill = Fill, cap = Cap, valueLabel = ValueLabel }
 	table.insert(themedSliders, sliderEntry)
-
 	local function layout()
 		local w, h = Track.AbsoluteSize.X, Track.AbsoluteSize.Y
 		if w <= 0 then w, h = sliderWidth, SliderTrackHeight end
@@ -1423,8 +1273,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	end
 	Track:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
 	layout()
-
-	-- drives the smooth slide when the slider is pointed at a different value
 	local driver = Instance.new("NumberValue")
 	driver.Value = alpha
 	driver.Parent = Track
@@ -1434,7 +1282,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		ValueLabel.Text = formatValue(sliderName, alphaToValue(sliderName, v))
 		layout()
 	end)
-	-- jumps straight to the current State value (config load / reset)
 	sliderEntry.sync = function()
 		if driverTween then driverTween:Cancel() driverTween = nil end
 		local target = valueToAlpha(sliderName, State.Sliders[sliderName])
@@ -1443,7 +1290,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		ValueLabel.Text = formatValue(sliderName, State.Sliders[sliderName])
 		layout()
 	end
-
 	local function setFromX(mouseX)
 		if driverTween then driverTween:Cancel() driverTween = nil end
 		alpha = math.clamp((mouseX - Track.AbsolutePosition.X) / math.max(Track.AbsoluteSize.X, 1), 0, 1)
@@ -1456,7 +1302,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = parent, Size = UDim2.fromOffset(sliderWidth + 12, 18), Position = UDim2.fromOffset(trackX - 6, trackY - 6),
 		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 4,
 	})
-	-- keep the tall hit area as wide as the (stretching) track
 	local function syncGrab()
 		GrabArea.Size = UDim2.fromOffset(math.max(Track.AbsoluteSize.X, sliderWidth) + 12, 18)
 	end
@@ -1471,7 +1316,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	end
 	GrabArea.InputBegan:Connect(beginSlider)
 	Track.InputBegan:Connect(beginSlider)
-
 	local function rebind(newSliderName)
 		if driverTween then driverTween:Cancel() driverTween = nil end
 		driver.Value = alpha
@@ -1489,8 +1333,6 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	end
 	return Track, ValueLabel, rebind
 end
-
------------------------------------------------------------------- dropdowns (overlay popup)
 local AimPartLabels = { "Root", "Head", "Upper Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
 local AimPartValues = {
 	Root="HumanoidRootPart", Head="Head", ["Upper Torso"]="UpperTorso", ["Left Arm"]="LeftArm", ["Right Arm"]="RightArm",
@@ -1505,7 +1347,6 @@ local AimPartAliases = {
 	LeftArm={"LeftUpperArm","LeftLowerArm","LeftHand","Left Arm"}, RightArm={"RightUpperArm","RightLowerArm","RightHand","Right Arm"},
 	LeftLeg={"LeftUpperLeg","LeftLowerLeg","LeftFoot","Left Leg"}, RightLeg={"RightUpperLeg","RightLowerLeg","RightFoot","Right Leg"},
 }
--- short names shown in the dropdown; State.SilentMethod keeps the full names
 local SilentMethodLabels = { "Raycast", "FPOR", "FPORWWL", "FPORWIL", "Mouse" }
 local SilentMethodValues = {
 	Raycast = "Raycast", FPOR = "FindPartOnRay", FPORWWL = "FindPartOnRayWithWhitelist",
@@ -1513,7 +1354,6 @@ local SilentMethodValues = {
 }
 local SilentMethodDisplay = {}
 for short, full in pairs(SilentMethodValues) do SilentMethodDisplay[full] = short end
-
 local ChevronAssetId = 79521530937277
 local ChevronImage = "rbxthumb://type=Asset&id=" .. ChevronAssetId .. "&w=150&h=150"
 local chevronLabels = {}
@@ -1526,8 +1366,6 @@ task.spawn(function()
 		end
 	end
 end)
-
------------------------------------------------------------------- rows / sections
 local function makeSimpleRowBase(parent, height)
 	return make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, height or RowHeight), BackgroundTransparency = 1, BorderSizePixel = 0 })
 end
@@ -1546,15 +1384,11 @@ local function hookHover(row, hover, amount)
 	end)
 	row.MouseLeave:Connect(function() tween(hover, 0.08, { BackgroundTransparency = 1 }) end)
 end
-
--- bottomGap (optional): extra space under the section that scales with how open it is, so a closed
--- section sits at the normal SectionGap and an open one keeps the extra gap.
 local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local open = startOpen and true or false
 	local headerHeight = 24
 	local leftInset = 6
 	local titleSize = 10
-
 	local wrapper = make("Frame", {
 		Parent = parent, Size = UDim2.new(1, 0, 0, headerHeight), BackgroundTransparency = 1,
 		BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.None,
@@ -1603,7 +1437,6 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	label:GetPropertyChangedSignal("TextBounds"):Connect(updateRule)
 	header:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateRule)
 	table.insert(themedBranches, { button = header, icon = collapse, label = label })
-
 	local bodyFrame = make("Frame", {
 		Parent = wrapper, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
 	})
@@ -1614,7 +1447,6 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local bodyLayout = make("UIListLayout", {
 		Parent = body, Padding = UDim.new(0, RowGap), SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-	-- openness (0 closed .. 1 open) is animated; heights are always derived from it
 	local openness = Instance.new("NumberValue")
 	openness.Value = open and 1 or 0
 	openness.Parent = header
@@ -1652,8 +1484,6 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	update()
 	return body, wrapper
 end
-
--- returns row, rebind(newStateName)
 local function makeSimpleToggleRow(parent, textValue, stateName)
 	local disabled = TemporarilyDisabledToggles[stateName] == true
 	if disabled then State.Toggles[stateName] = false end
@@ -1668,14 +1498,12 @@ local function makeSimpleToggleRow(parent, textValue, stateName)
 	row.MouseButton1Click:Connect(activateToggle)
 	return row, rebind
 end
--- returns row, rebind(newStateName)
 local function makeSimpleKeybindRow(parent, textValue, stateName, opts)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	makeControlLabel(row, textValue, 8, 42)
 	local _, rebind = makeKeybindBox(row, stateName, opts)
 	return row, rebind
 end
--- returns row, rebind(newSliderName)
 local function makeSimpleSliderRow(parent, textValue, sliderName)
 	local row = makeSimpleRowBase(parent, SliderRowHeight)
 	local labelX = 8
@@ -1696,28 +1524,19 @@ local function makeSimpleSliderRow(parent, textValue, sliderName)
 	end)
 	return row, rebind
 end
-
--- Dropdown row: the row never changes size. The option list is a floating popup parented to Main
--- (above everything), so it overlays whatever is below the dropdown instead of pushing it
--- down, and it can't be clipped by the section / scroll frames. Every dropdown uses DropdownWidth.
--- Lists longer than MaxDropdownOptions scroll. Returns row, nil, rebuild(newOptions): rebuild swaps the option list
--- (used by the config dropdown, whose list changes) and refreshes the shown value.
 local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValue)
 	local collapsedH = DropdownHeaderHeight
 	local expandedH = math.min(#options, MaxDropdownOptions) * DropdownOptionHeight
 	local rowPad = RowHeight - collapsedH
-
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local label = makeControlLabel(row, textValue, 8, DropdownWidth + 14)
 	label.Size = UDim2.new(1, -(8 + DropdownWidth + 14), 0, RowHeight)
-
 	local shell = make("Frame", {
 		Parent = row, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -5, 0, rowPad / 2),
 		Size = UDim2.fromOffset(DropdownWidth, collapsedH), BackgroundColor3 = Theme.Checkbox,
 		BackgroundTransparency = ControlTransparency, BorderSizePixel = 0, ZIndex = 2,
 	})
 	registerThemed(shell, "BackgroundColor3", "Checkbox")
-
 	local header = make("TextButton", {
 		Parent = shell, Size = UDim2.new(1, 0, 0, collapsedH), BackgroundColor3 = Theme.Highlight,
 		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 3,
@@ -1737,13 +1556,9 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	})
 	registerThemed(chevron, "ImageColor3", "Chevron")
 	table.insert(chevronLabels, chevron)
-	-- config load / reset refreshes the shown value through this
 	table.insert(choiceSyncs, function() selectedLabel.Text = getValue() end)
-
 	header.MouseEnter:Connect(function() tween(header, 0.1, { BackgroundTransparency = 0.88 }) end)
 	header.MouseLeave:Connect(function() tween(header, 0.1, { BackgroundTransparency = 1 }) end)
-
-	-- floating option list
 	local popup = make("ScrollingFrame", {
 		Parent = Main, Size = UDim2.fromOffset(DropdownWidth, 0), Position = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = Theme.Checkbox, BackgroundTransparency = 0.04, BorderSizePixel = 0,
@@ -1756,9 +1571,6 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	})
 	registerThemed(popup, "BackgroundColor3", "Checkbox")
 	registerThemed(popup, "ScrollBarImageColor3", "Scroll")
-
-	-- hover tracking: used instead of mouse coordinates for "click outside" (coordinates are off by the
-	-- Roblox top bar inset, which is what made the dropdown reopen itself)
 	local hovered = {}
 	local function trackHover(obj, isPopupPart)
 		obj.MouseEnter:Connect(function()
@@ -1776,11 +1588,9 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	trackHover(shell)
 	trackHover(header)
 	trackHover(popup, true)
-
 	local isOpen = false
 	local openTween, chevronTween, outsideConn, followConn, myClose
 	local setOpen
-
 	local optionButtons, optionEntries = {}, {}
 	local function optionRestTransparency(index)
 		return options[index] == getValue() and 0.5 or 1
@@ -1823,21 +1633,15 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 			optionButtons[index] = option
 		end
 	end
-
-	-- progress 0 (collapsed) .. 1 (expanded) drives only the popup height
 	local progress = Instance.new("NumberValue")
 	progress.Parent = shell
 	progress.Changed:Connect(function(p)
 		popup.Size = UDim2.fromOffset(DropdownWidth, math.floor(expandedH * p + 0.5))
 	end)
-
-	-- popup is a child of Main, so its position is the header's position relative to Main
-	-- (both use the same coordinate space, so the top bar inset cancels out)
 	local function syncPopup()
 		local p, m = shell.AbsolutePosition, Main.AbsolutePosition
 		popup.Position = UDim2.fromOffset(p.X - m.X, p.Y - m.Y + collapsedH)
 	end
-
 	setOpen = function(state)
 		if isOpen == state then return end
 		isOpen = state
@@ -1846,7 +1650,7 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		if outsideConn then outsideConn:Disconnect() outsideConn = nil end
 		if followConn then followConn:Disconnect() followConn = nil end
 		if state then
-			closeDropdown() -- close any other open dropdown first
+			closeDropdown()
 			myClose = function() setOpen(false) end
 			activeDropdownClose = myClose
 			for index, option in ipairs(optionButtons) do
@@ -1855,15 +1659,12 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 			popup.CanvasPosition = Vector2.new(0, 0)
 			syncPopup()
 			popup.Visible = true
-			-- clicking anywhere that is not this dropdown's header or list closes it.
-			-- The header handles its own click (toggle), so it is excluded here to avoid close/reopen loops.
 			outsideConn = UserInputService.InputBegan:Connect(function(input)
 				if input.KeyCode == Enum.KeyCode.Escape then setOpen(false) return end
 				if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 				if isHovering() then return end
 				setOpen(false)
 			end)
-			-- keep the popup glued to the header (scrolling, section collapsing, window dragging)
 			followConn = RunService.RenderStepped:Connect(function()
 				if not shell.Parent or not Main.Visible then setOpen(false) return end
 				local pp, ps = SharedPanel.AbsolutePosition, SharedPanel.AbsoluteSize
@@ -1892,14 +1693,12 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		end)
 		t:Play()
 	end
-
 	header.MouseButton1Click:Connect(function()
 		if inputBlocked() then return end
 		if #options == 0 then return end
 		setOpen(not isOpen)
 	end)
 	buildOptions()
-
 	local function rebuild(newOptions)
 		if newOptions then options = newOptions end
 		if isOpen then setOpen(false) end
@@ -1908,10 +1707,6 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	end
 	return row, nil, rebuild
 end
-
--- "<  Value  >" selector row: arrows cycle through the options (wraps around).
--- The value text slides in the direction of the arrow that was clicked:
--- "<" slides the text to the left, ">" slides it to the right.
 local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local ArrowSize, ValueWidth, Margin = 16, 66, 5
@@ -1956,8 +1751,6 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 		index = ((index - 1 + direction) % #options) + 1
 		setValue(options[index])
 		local outgoing, outgoingEntry = current, currentEntry
-		-- direction -1 (left arrow): old text leaves to the left, new text enters from the right
-		-- direction  1 (right arrow): old text leaves to the right, new text enters from the left
 		current, currentEntry = makeValueLabel(getValue(), -direction * ValueWidth)
 		local info = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 		TweenService:Create(current, info, { Position = UDim2.fromOffset(0, 0) }):Play()
@@ -1974,8 +1767,6 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 	rightArrow.MouseButton1Click:Connect(function() step(1) end)
 	return row
 end
-
--- Text box row (full width). Returns row, textBox. Only letters, digits, space, - and _ are kept, max 24 chars.
 local function makeSimpleTextBoxRow(parent, placeholder)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local box = make("TextBox", {
@@ -1995,9 +1786,6 @@ local function makeSimpleTextBoxRow(parent, placeholder)
 	end)
 	return row, box
 end
-
--- Button row: buttons = { {"Label", callback}, ... } shown side by side. If the callback returns a string it is
--- flashed on the button for a second (e.g. "Saved").
 local function makeSimpleButtonRow(parent, buttons)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local holder = make("Frame", {
@@ -2038,9 +1826,6 @@ local function makeSimpleButtonRow(parent, buttons)
 	end
 	return row
 end
-
--- Wrapper whose row slides open / closed whenever shouldShow() changes; it is re-checked on every choiceSync
--- (dropdown / preset / theme changes). Hidden wrappers are invisible so the list layout leaves no gap.
 local function makeRevealWrapper(parent, height, shouldShow)
 	local open = shouldShow() and true or false
 	local wrapper = make("Frame", {
@@ -2068,14 +1853,10 @@ local function makeRevealWrapper(parent, height, shouldShow)
 	end)
 	return wrapper
 end
-
-local setCombatType, tpSpeedRow -- used by the settings page (config load)
------------------------------------------------------------------- menu layout
+local setCombatType, tpSpeedRow
 do
--- LEFT COLUMN
 local CombatRoot = makeSimpleSection(LeftContent, "Combat", true)
 State.CombatType = "Camlock"
-
 makeSimpleCycleRow(CombatRoot, "Type", { "Camlock", "Silent Aim" },
 	function() return State.CombatType end,
 	function(v)
@@ -2083,12 +1864,6 @@ makeSimpleCycleRow(CombatRoot, "Type", { "Camlock", "Silent Aim" },
 		closeDropdown()
 		if setCombatType then setCombatType(v) end
 	end)
-
--- Camlock and Silent Aim share the same rows (Toggle, Keybind, Prediction, Show Fov, Fov).
--- Switching Type only re-points those rows at the other mode's settings (the sliders and toggles slide
--- to the new values). Only the rows that exist in one mode are added/removed with a height animation:
---   Smoothness is Camlock only, Method is Silent Aim only.
--- Each item's wrapper carries its own RowGap, so the block never leaves a stray gap when an item is hidden.
 local CombatBlock = make("Frame", {
 	Parent = CombatRoot, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
@@ -2123,19 +1898,12 @@ local function addCombatItem(build, startOpen)
 	end
 	return { Row = row, Rebind = rebind, SetOpen = setOpen }
 end
-
 local ctToggle     = addCombatItem(function(p) return makeSimpleToggleRow(p, "Toggle", "Camlock") end, true)
 local ctKeybind    = addCombatItem(function(p) return makeSimpleKeybindRow(p, "Keybind", "CamLockToggle") end, true)
 local ctPrediction = addCombatItem(function(p) return makeSimpleSliderRow(p, "Prediction", "Prediction") end, true)
 local ctSmoothness = addCombatItem(function(p) return makeSimpleSliderRow(p, "Smoothness", "Smoothness") end, true)
 local ctShowFov    = addCombatItem(function(p) return makeSimpleToggleRow(p, "Show Fov", "FovCircle") end, true)
 local ctFov        = addCombatItem(function(p) return makeSimpleSliderRow(p, "Fov", "FovRadius") end, true)
-local ctMethod     = addCombatItem(function(p)
-	return makeSimpleChoiceRow(p, "Method", SilentMethodLabels,
-		function() return SilentMethodDisplay[State.SilentMethod] or "Raycast" end,
-		function(name) State.SilentMethod = SilentMethodValues[name] or "Raycast" end)
-end, false)
-
 setCombatType = function(v)
 	local cam = v == "Camlock"
 	ctToggle.Rebind(cam and "Camlock" or "Silent")
@@ -2144,9 +1912,7 @@ setCombatType = function(v)
 	ctShowFov.Rebind(cam and "FovCircle" or "SilentFovCircle")
 	ctFov.Rebind(cam and "FovRadius" or "SilentFovRadius")
 	ctSmoothness.SetOpen(cam)
-	ctMethod.SetOpen(not cam)
 end
-
 makeSimpleChoiceRow(CombatRoot, "Aim Part", AimPartLabels,
 	function() return AimPartDisplay[State.AimPart] or "Upper Torso" end,
 	function(name) State.AimPart = AimPartValues[name] or "HumanoidRootPart" end)
@@ -2157,9 +1923,6 @@ makeSimpleToggleRow(CombatRoot, "Friend Check", "FriendCheck")
 makeSimpleToggleRow(CombatRoot, "Wall Check", "WallCheck")
 makeSimpleToggleRow(CombatRoot, "Dead Check", "DeadCheck")
 makeSimpleToggleRow(CombatRoot, "Target UI", "TargetUI")
-
--- a block of rows where individual rows can slide open / closed without leaving a stray gap (same idea as the
--- combat block above): each item's wrapper carries its own RowGap, the block subtracts the last one
 local function makeAnimatedBlock(parent)
 	local block = make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0 })
 	local layout = make("UIListLayout", { Parent = block, Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder })
@@ -2192,7 +1955,6 @@ local function makeAnimatedBlock(parent)
 		return { Row = row, Rebind = rebind, SetOpen = setOpen }
 	end
 end
-
 local MovementSection = makeSimpleSection(LeftContent, "Movement", true)
 makeSimpleChoiceRow(MovementSection, "Click Tp", { "Tween", "Instant" },
 	function() return State.TpMode end,
@@ -2210,13 +1972,10 @@ makeSimpleToggleRow(MovementSection, "Fly", "Fly")
 makeSimpleKeybindRow(MovementSection, "Fly Toggle", "FlyToggle")
 makeSimpleSliderRow(MovementSection, "Speed", "FlySpeed")
 makeSimpleSliderRow(MovementSection, "Fly Multiplier", "FlyMultiplier")
-
 local WorldSection = makeSimpleSection(LeftContent, "World", true)
 makeSimpleToggleRow(WorldSection, "No Fog", "NoFog")
 makeSimpleToggleRow(WorldSection, "Disable Shadows", "DisableShadows")
 makeSimpleToggleRow(WorldSection, "Remove Textures", "LowGfx")
-
--- RIGHT COLUMN
 local EspRoot = makeSimpleSection(RightContent, "Esp", true, EspBottomGap)
 makeSimpleChoiceRow(EspRoot, "Update rate", { "Auto", "60", "120", "144", "160", "180", "200", "240" },
 	function() return State.EspUpdateRate end,
@@ -2224,7 +1983,6 @@ makeSimpleChoiceRow(EspRoot, "Update rate", { "Auto", "60", "120", "144", "160",
 makeSimpleToggleRow(EspRoot, "Display", "NameEsp")
 makeSimpleToggleRow(EspRoot, "Tracers", "Tracers")
 makeSimpleToggleRow(EspRoot, "Skeleton", "Skeleton")
-makeSimpleToggleRow(EspRoot, "Outlines", "Outlines")
 makeSimpleToggleRow(EspRoot, "Distance", "Distance")
 makeSimpleToggleRow(EspRoot, "Item", "ShowItems")
 local BoxEspSection = makeSimpleSection(EspRoot, "Box Esp", false)
@@ -2236,7 +1994,6 @@ makeSimpleToggleRow(BoxEspSection, "Healthbar", "HealthBars")
 local IndicatorsSection = makeSimpleSection(EspRoot, "Indicators", false)
 makeSimpleToggleRow(IndicatorsSection, "Friend Indicator", "FriendEsp")
 makeSimpleToggleRow(IndicatorsSection, "Team Check", "EspTeamCheck")
-
 local PlayerSection = makeSimpleSection(RightContent, "Player", true)
 makeSimpleToggleRow(PlayerSection, "Noclip", "Noclip")
 makeSimpleToggleRow(PlayerSection, "Maxzoom", "Maxzoom")
@@ -2248,14 +2005,8 @@ makeSimpleToggleRow(MiscSection, "Anti-Seat", "AntiSeat")
 makeSimpleToggleRow(MiscSection, "Anti AFK", "AntiAfk")
 makeSimpleToggleRow(MiscSection, "Auto Pickup", "AutoPickup")
 end
-
 local setThemePreset
------------------------------------------------------------------- settings page
 do
--- Same layout as the main page (two columns, rows going down), but ONE scroll for the whole page
--- instead of a scroll per column. The gear button in the bottom-left is the only way back.
--- LEFT:  Appearance (backdrop preset, theme preset, UI Blur, UI Shadow)
--- RIGHT: Config (name box, saved list, Save / Delete / Cancel, Auto Load Last), then Misc
 local SettingsScroll = make("ScrollingFrame", {
 	Parent = SettingsPage, Size = UDim2.new(1, ScrollOut, 1, 0), Position = UDim2.fromOffset(0, 0),
 	BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.fromOffset(0, 0),
@@ -2267,7 +2018,6 @@ local SettingsScroll = make("ScrollingFrame", {
 })
 pcall(function() SettingsScroll.VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Right end)
 registerThemed(SettingsScroll, "ScrollBarImageColor3", "Scroll")
-
 local function makeSettingsColumn(xOffset, width)
 	local col = make("Frame", {
 		Parent = SettingsScroll, Size = UDim2.new(0, width - 8, 0, 0), Position = UDim2.fromOffset(xOffset + 4, 6),
@@ -2285,22 +2035,17 @@ end
 SettingsLeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncSettingsCanvas)
 SettingsRightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncSettingsCanvas)
 syncSettingsCanvas()
-
--- ---- theme preset
 setThemePreset = function(name)
 	if not PresetSet[name] then name = "None" end
 	State.Theme = name
-	-- picking a theme turns the backdrop preset off (a preset and a theme can't both be active; Light also can't sit on an image)
 	if name ~= "None" and State.Preset ~= "None" and setBackdropPreset then setBackdropPreset("None") end
 	buildTheme("dark")
 	buildTheme("light")
 	applyTheme(name == "Light" and "light" or "dark", true)
 	BlurController.RefreshGlass()
-	syncBlurButton(true) -- re-tints the wave logo
-	for _, sync in ipairs(choiceSyncs) do pcall(sync) end -- refresh the Theme / Presets dropdown labels
+	syncBlurButton(true)
+	for _, sync in ipairs(choiceSyncs) do pcall(sync) end
 end
-
--- ---- config backend intentionally disconnected in this test build
 local ConfigNames = { "Not ready" }
 local ActiveConfig = nil
 local ConfigNameBox
@@ -2321,32 +2066,42 @@ local function resetSettings()
 	return "Not ready"
 end
 local function unloadUI()
+	if unloadingUI then return end
+	unloadingUI = true
+	Main.Visible = false
+	ScreenGui.Enabled = false
 	closeDropdown()
 	waitingForKey = nil
 	for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
 	table.clear(Connections)
 	pcall(function() BlurController.Destroy() end)
-	pcall(function() ScreenGui:Destroy() end)
+	pcall(function() ScreenGui.Parent = nil end)
+	task.spawn(function()
+		local destroyed = 0
+		local function destroyGuiTree(parent)
+			for _, child in ipairs(parent:GetChildren()) do
+				destroyGuiTree(child)
+				if child.Parent then pcall(function() child:Destroy() end) end
+				destroyed += 1
+				if destroyed % 24 == 0 then task.wait() end
+			end
+		end
+		destroyGuiTree(ScreenGui)
+		pcall(function() ScreenGui:Destroy() end)
+	end)
 end
-
--- ---- layout
--- LEFT COLUMN
 local AppearanceSection = makeSimpleSection(SettingsLeft, "Appearance", true)
 makeSimpleChoiceRow(AppearanceSection, "Presets", { "None", "Daydream" },
 	function() return State.Preset end,
 	function(v)
-		-- picking a preset turns the theme off
 		if v ~= "None" and State.Theme ~= "None" then setThemePreset("None") end
 		setBackdropPreset(v)
 	end)
 makeSimpleChoiceRow(AppearanceSection, "Theme", PresetNames,
 	function() return State.Theme end,
 	function(v) setThemePreset(v) end)
--- Background Blur is only shown while no preset is active (a preset image covers the window, so it would do nothing)
 makeSimpleToggleRow(makeRevealWrapper(AppearanceSection, RowHeight, function() return State.Preset == "None" end), "Background Blur", "UIBlur")
 makeSimpleToggleRow(AppearanceSection, "UI Shadow", "UIShadow")
-
--- RIGHT COLUMN
 local ConfigSection = makeSimpleSection(SettingsRight, "Config", true)
 ConfigNameBox = select(2, makeSimpleTextBoxRow(ConfigSection, "Config name"))
 rebuildConfigDropdown = select(3, makeSimpleChoiceRow(ConfigSection, "Saved", ConfigNames,
@@ -2354,7 +2109,6 @@ rebuildConfigDropdown = select(3, makeSimpleChoiceRow(ConfigSection, "Saved", Co
 	function(name) loadConfig(name) end))
 makeSimpleButtonRow(ConfigSection, { { "Save", saveConfig }, { "Delete", deleteConfig }, { "Cancel", cancelConfig } })
 makeSimpleToggleRow(ConfigSection, "Auto Load Last", "AutoLoad")
-
 local SettingsMisc = makeSimpleSection(SettingsRight, "Misc", true)
 makeSimpleKeybindRow(SettingsMisc, "Menu Key", "MenuToggle", { NoClear = true, KeyboardOnly = true })
 makeSimpleToggleRow(SettingsMisc, "Array List", "ArrayList")
@@ -2366,23 +2120,18 @@ makeSimpleButtonRow(makeRevealWrapper(SettingsMisc, RowHeight, function() return
 	{ { "Fix Blur", function() BlurController.Fix() return "Fixed" end } })
 makeSimpleButtonRow(SettingsMisc, { { "Unload UI", unloadUI } })
 end
-
------------------------------------------------------------------- feature backend
--- Shared held-key state is also used by the Tween Click TP runtime.
 local heldInputNames = {}
 local function isTweenTpBindHeld()
 	local bind = State.Keybinds.TweenClickTpToggle
 	if not bind or bind == "" or bind == "..." then return false end
 	return heldInputNames[bind] == true
 end
-
 local camLockActive   = false
 local camLockedTarget = nil
 local FovVisuals = {
 	Cam = { Circle = Drawing.new("Circle"), X = nil, Y = nil, Radius = nil, Visible = false },
 	Silent = { Circle = Drawing.new("Circle"), X = nil, Y = nil, Radius = nil, Visible = false },
 }
-
 for _, visual in pairs(FovVisuals) do
 	local circle = visual.Circle
 	circle.Visible = false
@@ -2393,7 +2142,6 @@ for _, visual in pairs(FovVisuals) do
 	circle.NumSides = 40
 	circle.ZIndex = 8
 end
-
 local function updateFovVisual(visual, center, radius, visible)
 	local circle = visual.Circle
 	if not visible then
@@ -2403,7 +2151,6 @@ local function updateFovVisual(visual, center, radius, visible)
 		end
 		return
 	end
-
 	local safeRadius = math.max(1, tonumber(radius) or 150)
 	local x, y = center.X, center.Y
 	if visual.X ~= x or visual.Y ~= y then
@@ -2527,7 +2274,6 @@ local function getModelAimPosition(player, selection, adaptive, reference)
 		if modelPositionVisible and modelPositionVisible(chosen, model) then
 			return chosen, model, part
 		end
-
 		local candidates = {}
 		for name, offset in pairs(offsets) do
 			if name ~= selection then
@@ -2571,12 +2317,10 @@ local function getStandardAdaptivePart(model, selection, reference)
 	if not model then return nil end
 	local camera = workspace.CurrentCamera or Camera
 	if not camera then return getStandardCombatPart(model, selection) end
-
 	local selected = getStandardCombatPart(model, selection)
 	if selected and modelPositionVisible and modelPositionVisible(selected.Position, model) then
 		return selected
 	end
-
 	local choices = {"HumanoidRootPart", "Head", "UpperTorso", "LeftArm", "RightArm", "LeftLeg", "RightLeg"}
 	local candidates, seen = {}, {}
 	for _, choice in ipairs(choices) do
@@ -2593,14 +2337,11 @@ local function getStandardAdaptivePart(model, selection, reference)
 		end
 	end
 	table.sort(candidates, function(a, b) return a.Distance < b.Distance end)
-
 	for _, candidate in ipairs(candidates) do
 		if modelPositionVisible and modelPositionVisible(candidate.Part.Position, model) then
 			return candidate.Part
 		end
 	end
-
-	-- Every candidate is obstructed: keep the user's selected hit part as the fallback.
 	return selected or (candidates[1] and candidates[1].Part) or getStandardCombatPart(model, "HumanoidRootPart")
 end
 local function getCombatAimPosition(player, selection, adaptive, reference)
@@ -2678,7 +2419,6 @@ local function updateCamLockFrame(deltaTime)
 	local camera = workspace.CurrentCamera
 	Camera = camera
 	if not camera then return end
-
 	local camFov = FovVisuals.Cam
 	local center = camera.ViewportSize / 2
 	local fovRadius = State.Sliders.FovRadius
@@ -2686,19 +2426,14 @@ local function updateCamLockFrame(deltaTime)
 	if showCamFov or camFov.Visible then
 		updateFovVisual(camFov, center, fovRadius, showCamFov)
 	end
-
 	if not camLockActive then return end
-
 	if camLockedTarget ~= nil and not camIsValidTarget(camLockedTarget) then
 		if State.Toggles.StickyAim and camPlayerCanRemainLocked(camLockedTarget) then
-			-- Keep the same player selected while their character is dead or respawning.
-			-- The camera resumes tracking them once they have a valid character again.
 			return
 		end
 		camLockedTarget = nil
 		camReacquireAfter = os.clock()
 	end
-
 	if camLockedTarget == nil and os.clock() >= camReacquireAfter then
 		local bestTarget, bestDistance = nil, fovRadius
 		for _, player in ipairs(Players:GetPlayers()) do
@@ -2719,23 +2454,18 @@ local function updateCamLockFrame(deltaTime)
 		end
 		camLockedTarget = bestTarget
 	end
-
 	if not camLockedTarget or not camIsValidTarget(camLockedTarget) then return end
-
 	local position, model, motionPart = getCombatAimPosition(
 		camLockedTarget, State.AimPart, State.Toggles.AdaptiveAim, center
 	)
 	if not position then return end
 	if not modelPassesWallCheck(position, model) then
-		-- Wall Check can temporarily pause tracking without forcing a new target.
-		-- With Sticky Aim off, release the blocked target and acquire another one.
 		if not State.Toggles.StickyAim then
 			camLockedTarget = nil
 			camReacquireAfter = os.clock()
 		end
 		return
 	end
-
 	local velocity = motionPart and motionPart.AssemblyLinearVelocity or Vector3.zero
 	local aimPosition = position + velocity * (tonumber(State.Sliders.Prediction) or 0)
 	local currentCFrame = camera.CFrame
@@ -2748,8 +2478,6 @@ local function updateCamLockFrame(deltaTime)
 		camera.CFrame = currentCFrame:Lerp(targetCFrame, alpha)
 	end
 end
-
--- Run after Roblox's camera controller so ESP can project against this exact camera frame.
 pcall(function() RunService:UnbindFromRenderStep(CamLockRenderName) end)
 RunService:BindToRenderStep(
 	CamLockRenderName,
@@ -2760,7 +2488,6 @@ ScreenGui.AncestryChanged:Connect(function(_, parent)
 	if parent then return end
 	pcall(function() RunService:UnbindFromRenderStep(CamLockRenderName) end)
 end)
-
 _G.WaveLite_CamLock_Toggle = function(forceState)
 	local desired
 	if type(forceState) == "boolean" then
@@ -2838,8 +2565,6 @@ function __WaveLiteSetupSilent()
 		local camera=workspace.CurrentCamera
 		if not camera then return nil end
 		local projected=camera:WorldToViewportPoint(position)
-		-- A retained Sticky Aim target can move beyond the visible viewport; only reject
-		-- targets behind the camera. New acquisitions are still constrained by FOV distance.
 		if projected.Z<=0 then return nil end
 		local dist=(Vector2.new(projected.X,projected.Y)-mouse).Magnitude
 		return {player=player,position=position,part=part,model=model,dist=dist}
@@ -2860,9 +2585,6 @@ function __WaveLiteSetupSilent()
 			local radius=tonumber(State.Sliders.SilentFovRadius) or 150
 			local retained=nil
 			local sticky=State.Toggles.StickyAim == true
-
-			-- Prefer the already-acquired player. Sticky Aim lets that player remain selected
-			-- outside the FOV and across death/respawn; without it, they must stay in the FOV.
 			local currentPlayer=silent.player
 			if currentPlayer then
 				if not silentPlayerCanRemainTargeted(currentPlayer) then
@@ -2874,8 +2596,6 @@ function __WaveLiteSetupSilent()
 					if previous and (sticky or previous.dist<=radius) then
 						retained=previous
 					elseif sticky then
-						-- The selected player is temporarily not aimable (usually dead,
-						-- respawning, or occluded). Keep their identity, but never use a stale part.
 						silent.cache=nil
 						return
 					else
@@ -2884,8 +2604,6 @@ function __WaveLiteSetupSilent()
 					end
 				end
 			end
-
-			-- No retained target: acquire the nearest valid player inside the FOV.
 			if not retained then
 				local closest=radius
 				for _,player in ipairs(Players:GetPlayers()) do
@@ -2896,7 +2614,6 @@ function __WaveLiteSetupSilent()
 					end
 				end
 			end
-
 			if retained then
 				local velocity=retained.part and retained.part.AssemblyLinearVelocity or Vector3.zero
 				local predicted=retained.position + velocity*(tonumber(State.Sliders.SilentPrediction) or 0)
@@ -2914,8 +2631,6 @@ function __WaveLiteSetupSilent()
 		if not ok then silent.cache=nil end
 	end
 	local function canRedirect()
-		-- Match the supplied known-working hook gate exactly. Do not re-resolve the
-		-- target model here: some games expose a separate combat model from Player.Character.
 		if not silent.active or not silent.enabled or silent.updating then return nil end
 		local cache=silent.cache
 		if not cache or not cache.part or not cache.part.Parent or os.clock()-cache.stamp>0.2 then return nil end
@@ -2927,7 +2642,6 @@ function __WaveLiteSetupSilent()
 	end
 	local function validateOriginalArguments(method,args)
 		if method=="Raycast" then
-			-- Preserve the exact argument contract from the supplied working build.
 			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3" and typeof(args[3])=="RaycastParams"
 		end
 		if method=="FindPartOnRay" or method=="findPartOnRay" then
@@ -2938,9 +2652,6 @@ function __WaveLiteSetupSilent()
 		end
 		return false
 	end
-	-- This is the direct redirection path from the supplied last-working build.
-	-- Do not add camera-script or angle heuristics here: those gates caused valid
-	-- weapon raycasts to pass through unchanged in the newer build.
 	local function getOriginalDirection(origin,position)
 		local diff=position-origin
 		if diff.Magnitude<=0.001 then return nil end
@@ -3821,8 +3532,6 @@ function __WaveLiteSetupMisc()
 				return
 			end
 		end
-		-- Giver models can replicate before their BasePart exists. Re-check tagged
-		-- ancestors as descendants arrive so those models are not missed.
 		local ancestor=item:FindFirstAncestorOfClass("Model")
 		while ancestor do
 			if type(ancestor:GetAttribute("ToolName"))=="string" then
@@ -4241,7 +3950,6 @@ function __WaveLiteSetupEsp()
 	if type(environment.Wave15EspDrawingCleanup) == "function" then
 		pcall(environment.Wave15EspDrawingCleanup)
 	end
-
 	local renderName = "Wave1.5 ESP Drawing"
 	local espObjects = {}
 	local trackedPlayers = {}
@@ -4249,29 +3957,13 @@ function __WaveLiteSetupEsp()
 	local updateAccumulator = 0
 	local geometryOutlineThickness = 1.8
 	local geometryThickness = 1
-	local textFont = 1 -- System
+	local textFont = 1
 	local friendColor = Color3.fromRGB(255, 255, 0)
-	local friendIndicatorAssetId = 72047062472203
-	local friendIndicatorImage = "rbxassetid://" .. tostring(friendIndicatorAssetId)
-	task.spawn(function()
-		local resolved = resolveDecalTexture(friendIndicatorAssetId)
-		if not resolved or resolved == "" then return end
-		friendIndicatorImage = resolved
-		for _, entry in pairs(espObjects) do
-			local marker = entry.friendMarker
-			local icon = marker and marker:FindFirstChild("FriendIcon")
-			if icon and icon:IsA("ImageLabel") then
-				pcall(function() icon.Image = resolved end)
-			end
-		end
-	end)
-
 	local boxEdges = {
 		{1, 2}, {3, 4}, {5, 6}, {7, 8},
 		{1, 3}, {2, 4}, {5, 7}, {6, 8},
 		{1, 5}, {2, 6}, {3, 7}, {4, 8},
 	}
-
 	local skeletonConnections = {
 		{"Head", "Torso"}, {"Torso", "HumanoidRootPart"},
 		{"Torso", "Left Arm"}, {"Torso", "Right Arm"},
@@ -4284,7 +3976,6 @@ function __WaveLiteSetupEsp()
 		{"LeftLowerArm", "LeftHand"}, {"RightLowerArm", "RightHand"},
 		{"LeftLowerLeg", "LeftFoot"}, {"RightLowerLeg", "RightFoot"},
 	}
-
 	local function createDrawing(className, zIndex)
 		local ok, object = pcall(function()
 			return Drawing.new(className)
@@ -4296,11 +3987,9 @@ function __WaveLiteSetupEsp()
 		end)
 		return object
 	end
-
 	local function setVisible(object, visible)
 		if object then pcall(function() object.Visible = visible end) end
 	end
-
 	local function removeDrawing(object)
 		if not object then return end
 		pcall(function()
@@ -4311,7 +4000,6 @@ function __WaveLiteSetupEsp()
 			end
 		end)
 	end
-
 	local function makeLineArray(count, zIndex)
 		local result = table.create(count)
 		for index = 1, count do
@@ -4319,7 +4007,6 @@ function __WaveLiteSetupEsp()
 		end
 		return result
 	end
-
 	local function ensureLineArray(drawings, key, count, zIndex, friendOn)
 		local result = drawings[key]
 		if not result then
@@ -4333,7 +4020,6 @@ function __WaveLiteSetupEsp()
 		end
 		return result
 	end
-
 	local function makeText(size, centered)
 		local object = createDrawing("Text", 4)
 		if object then
@@ -4349,7 +4035,6 @@ function __WaveLiteSetupEsp()
 		end
 		return object
 	end
-
 	local function makeSquare(zIndex)
 		local object = createDrawing("Square", zIndex or 2)
 		if object then
@@ -4361,7 +4046,6 @@ function __WaveLiteSetupEsp()
 		end
 		return object
 	end
-
 	local function makeFilledSquare(zIndex)
 		local object = createDrawing("Square", zIndex or 2)
 		if object then
@@ -4374,8 +4058,7 @@ function __WaveLiteSetupEsp()
 		end
 		return object
 	end
-
-	local function hideEntry(object, keepFriendMarker, keepCharacterOutline)
+	local function hideEntry(object)
 		if not object or not object.drawings then return end
 		for _, value in pairs(object.drawings) do
 			if type(value) == "table" then
@@ -4384,14 +4067,7 @@ function __WaveLiteSetupEsp()
 				setVisible(value, false)
 			end
 		end
-		if object.friendMarker and not keepFriendMarker then
-			pcall(function() object.friendMarker.Enabled = false end)
-		end
-		if object.characterHighlight and not keepCharacterOutline then
-			pcall(function() object.characterHighlight.Enabled = false end)
-		end
 	end
-
 	local function destroyEntry(player)
 		local object = espObjects[player]
 		if not object then return end
@@ -4403,34 +4079,22 @@ function __WaveLiteSetupEsp()
 				removeDrawing(value)
 			end
 		end
-		if object.friendMarker then
-			pcall(function() object.friendMarker:Destroy() end)
-			object.friendMarker = nil
-		end
-		if object.characterHighlight then
-			pcall(function() object.characterHighlight:Destroy() end)
-			object.characterHighlight = nil
-		end
 		espObjects[player] = nil
 		FriendChecks.cache[player] = nil
 	end
-
 	local function createEntry(player)
 		local drawings = {
 			name = makeText(15, true),
 			distance = makeText(9, true),
 			itemText = makeText(11, false),
-
 			box2D = makeSquare(3),
 			box2DOutline = makeSquare(2),
 			tracer = createDrawing("Line", 3),
 			tracerOutline = createDrawing("Line", 2),
-
 			healthBorder = makeFilledSquare(2),
 			healthTrack = makeFilledSquare(3),
 			healthFill = makeFilledSquare(4),
 		}
-
 		if drawings.box2DOutline then
 			drawings.box2DOutline.Color = Color3.fromRGB(0, 0, 0)
 			drawings.box2DOutline.Thickness = geometryOutlineThickness
@@ -4443,7 +4107,6 @@ function __WaveLiteSetupEsp()
 			drawings.tracerOutline.Color = Color3.fromRGB(0, 0, 0)
 			drawings.tracerOutline.Thickness = geometryOutlineThickness
 		end
-
 		local object = {
 			character = nil,
 			root = nil,
@@ -4451,14 +4114,11 @@ function __WaveLiteSetupEsp()
 			projectedPoints = table.create(8),
 			projectedFront = table.create(8),
 			drawings = drawings,
-			friendMarker = nil,
-			characterHighlight = nil,
 			friendLayer = nil,
 		}
 		espObjects[player] = object
 		return object
 	end
-
 	local function getRoot(character)
 		if not character then return nil end
 		for _, name in ipairs({"HumanoidRootPart", "Root", "LowerTorso", "Torso", "UpperTorso", "Head"}) do
@@ -4476,7 +4136,6 @@ function __WaveLiteSetupEsp()
 		end
 		return nil
 	end
-
 	local function getCharacterBounds(character)
 		local ok, boundsCFrame, boundsSize = pcall(function()
 			return character:GetBoundingBox()
@@ -4485,9 +4144,6 @@ function __WaveLiteSetupEsp()
 		if boundsSize.X <= 0.01 or boundsSize.Y <= 0.01 or boundsSize.Z <= 0.01 then return nil end
 		return boundsCFrame, boundsSize
 	end
-
-	-- Build the skeleton links once when a character is first seen. The render loop
-	-- only projects these cached part references; it never rescans GetDescendants().
 	local function buildSkeletonPairs(character)
 		local byName = {}
 		for _, part in ipairs(character:GetDescendants()) do
@@ -4495,7 +4151,6 @@ function __WaveLiteSetupEsp()
 				byName[part.Name] = part
 			end
 		end
-
 		local result = table.create(#skeletonConnections)
 		for index, names in ipairs(skeletonConnections) do
 			local first = byName[names[1]]
@@ -4506,7 +4161,6 @@ function __WaveLiteSetupEsp()
 		end
 		return result
 	end
-
 	local function getSkeletonPairs(object, character)
 		if object.character ~= character then
 			object.character = character
@@ -4518,7 +4172,6 @@ function __WaveLiteSetupEsp()
 		end
 		return object.skeletonPairs
 	end
-
 	local function setText(object, text, position, color, size, centered)
 		if not object then return end
 		pcall(function()
@@ -4533,7 +4186,6 @@ function __WaveLiteSetupEsp()
 			object.Visible = true
 		end)
 	end
-
 	local function setLine(object, fromPoint, toPoint, color, thickness)
 		if not object then return end
 		pcall(function()
@@ -4545,7 +4197,6 @@ function __WaveLiteSetupEsp()
 			object.Visible = true
 		end)
 	end
-
 	local function setSquare(object, position, size, color, filled, thickness)
 		if not object then return end
 		pcall(function()
@@ -4558,7 +4209,6 @@ function __WaveLiteSetupEsp()
 			object.Visible = true
 		end)
 	end
-
 	local function healthColor(ratio)
 		ratio = math.clamp(ratio or 0, 0, 1)
 		local stops = {
@@ -4578,14 +4228,12 @@ function __WaveLiteSetupEsp()
 		end
 		return Color3.fromRGB(0, 255, 0)
 	end
-
 	local function projectBounds(object, boundsCFrame, boundsSize, camera)
 		local half = boundsSize * 0.5
 		local minX, minY = math.huge, math.huge
 		local maxX, maxY = -math.huge, -math.huge
 		local anyOnScreen = false
 		local index = 0
-
 		for sx = -1, 1, 2 do
 			for sy = -1, 1, 2 do
 				for sz = -1, 1, 2 do
@@ -4594,7 +4242,6 @@ function __WaveLiteSetupEsp()
 					local worldCorner = boundsCFrame:PointToWorldSpace(localCorner)
 					local point, onScreen = camera:WorldToViewportPoint(worldCorner)
 					local inFront = point.Z > 0.05
-
 					object.projectedPoints[index] = Vector2.new(point.X, point.Y)
 					object.projectedFront[index] = inFront
 					if inFront then
@@ -4607,7 +4254,6 @@ function __WaveLiteSetupEsp()
 				end
 			end
 		end
-
 		if index ~= 8 or minX == math.huge or not anyOnScreen then return nil end
 		local width, height = maxX - minX, maxY - minY
 		if width < 1 or height < 1 then return nil end
@@ -4616,7 +4262,6 @@ function __WaveLiteSetupEsp()
 		end
 		return minX, minY, width, height
 	end
-
 	local function drawCornerLine(mainLines, outlineLines, index, x1, y1, x2, y2, color, outlinesEnabled, outlineColor)
 		local fromPoint = Vector2.new(x1, y1)
 		local toPoint = Vector2.new(x2, y2)
@@ -4627,14 +4272,12 @@ function __WaveLiteSetupEsp()
 		end
 		setLine(mainLines[index], fromPoint, toPoint, color, geometryThickness)
 	end
-
 	local function drawRectCorners(mainLines, outlineLines, x, y, width, height, color, outlinesEnabled, outlineColor)
 		local length = math.min(width, height) * 0.25
 		local cw = math.min(width, length)
 		local ch = math.min(height, length)
 		local right = x + width
 		local bottom = y + height
-
 		drawCornerLine(mainLines, outlineLines, 1, x, y, x + cw, y, color, outlinesEnabled, outlineColor)
 		drawCornerLine(mainLines, outlineLines, 2, x, y, x, y + ch, color, outlinesEnabled, outlineColor)
 		drawCornerLine(mainLines, outlineLines, 3, right - cw, y, right, y, color, outlinesEnabled, outlineColor)
@@ -4685,24 +4328,20 @@ function __WaveLiteSetupEsp()
 				end
 			end
 		end
-
 		for index = lineIndex + 1, #mainLines do
 			setVisible(mainLines[index], false)
 			setVisible(outlineLines[index], false)
 		end
 	end
-
 	local function updateSkeleton(object, character, camera, color, outlinesEnabled, outlineColor, friendOn)
 		local links = getSkeletonPairs(object, character)
 		local mainLines = ensureLineArray(object.drawings, "skeleton", 24, 3, friendOn)
 		local outlineLines = ensureLineArray(object.drawings, "skeletonOutline", 24, 2, friendOn)
-
 		for index = 1, #links do
 			local firstPart = links[index][1]
 			local secondPart = links[index][2]
 			local mainLine = mainLines[index]
 			local outlineLine = outlineLines[index]
-
 			if firstPart.Parent and secondPart.Parent then
 				local a = camera:WorldToViewportPoint(firstPart.Position)
 				local b = camera:WorldToViewportPoint(secondPart.Position)
@@ -4724,25 +4363,20 @@ function __WaveLiteSetupEsp()
 				setVisible(outlineLine, false)
 			end
 		end
-
 		for index = #links + 1, #mainLines do
 			setVisible(mainLines[index], false)
 			setVisible(outlineLines[index], false)
 		end
 	end
-
 	local function anyEspOn()
 		local toggles = State.Toggles
-		return toggles.NameEsp or toggles.Tracers or toggles.FriendEsp or toggles.Skeleton
-			or toggles.Outlines or toggles.BoxOutline or toggles.BoxCorners or toggles.Box3D
+		return toggles.NameEsp or toggles.Tracers or toggles.Skeleton
+			or toggles.BoxOutline or toggles.BoxCorners or toggles.Box3D
 			or toggles.Box3DCorners or toggles.HealthBars or toggles.Distance or toggles.ShowItems
 	end
-
 	local function updateHealthBar(object, boxX, boxY, boxHeight, humanoid)
 		local drawings = object.drawings
 		local ratio = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
-
-		-- Both axes follow the projected box. No fixed 16px minimum at long range.
 		local barHeight = math.max(1, boxHeight)
 		local border = math.clamp(barHeight * 0.01, 0.35, 0.85)
 		local trackWidth = math.clamp(barHeight * 0.028, 0.6, 2.3)
@@ -4753,7 +4387,6 @@ function __WaveLiteSetupEsp()
 		local outerY = boxY
 		local innerX = outerX + border
 		local innerY = outerY + border
-
 		setSquare(drawings.healthBorder, Vector2.new(outerX, outerY),
 			Vector2.new(outerWidth, barHeight), Color3.fromRGB(0, 0, 0), true, 0)
 		setSquare(drawings.healthTrack, Vector2.new(innerX, innerY),
@@ -4761,11 +4394,9 @@ function __WaveLiteSetupEsp()
 		setSquare(drawings.healthFill, Vector2.new(innerX, innerY + innerHeight - fillHeight),
 			Vector2.new(trackWidth, fillHeight), healthColor(ratio), true, 0)
 	end
-
 	local function setDrawingZIndex(drawing, zIndex)
 		if drawing then pcall(function() drawing.ZIndex = zIndex end) end
 	end
-
 	local function setFriendLayer(object, friendOn)
 		if object.friendLayer == friendOn then return end
 		object.friendLayer = friendOn
@@ -4785,88 +4416,6 @@ function __WaveLiteSetupEsp()
 			end
 		end
 	end
-
-	local function updateCharacterOutline(object, character, color, enabled)
-		local highlight = object.characterHighlight
-		if not enabled then
-			if highlight then pcall(function() highlight.Enabled = false end) end
-			return
-		end
-
-		if not highlight or not highlight.Parent then
-			local ok, created = pcall(function()
-				local instance = Instance.new("Highlight")
-				instance.Name = "WaveCharacterOutline"
-				instance.FillTransparency = 1
-				instance.OutlineTransparency = 0.08
-				instance.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-				instance.Enabled = false
-				instance.Parent = workspace
-				return instance
-			end)
-			if not ok or not created then return end
-			highlight = created
-			object.characterHighlight = highlight
-		end
-
-		pcall(function()
-			highlight.Adornee = character
-			highlight.OutlineColor = color
-			highlight.FillTransparency = 1
-			highlight.OutlineTransparency = 0.08
-			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-			highlight.Enabled = true
-		end)
-	end
-
-	local function updateFriendMarker(object, root, boundsCFrame, boundsSize, visible)
-		local marker = object.friendMarker
-		if not visible then
-			if marker then pcall(function() marker.Enabled = false end) end
-			return
-		end
-
-		if not marker or not marker.Parent then
-			local ok, created = pcall(function()
-				local billboard = Instance.new("BillboardGui")
-				billboard.Name = "WaveFriendIndicator"
-				billboard.Size = UDim2.fromOffset(16, 16)
-				billboard.AlwaysOnTop = true
-				billboard.MaxDistance = 0
-				billboard.LightInfluence = 0
-				billboard.Enabled = false
-
-				local image = Instance.new("ImageLabel")
-				image.Name = "FriendIcon"
-				image.BackgroundTransparency = 1
-				image.Size = UDim2.fromScale(1, 1)
-				image.Image = friendIndicatorImage
-				image.ImageColor3 = friendColor
-				image.ImageTransparency = 0
-				image.ScaleType = Enum.ScaleType.Fit
-				image.ZIndex = 2
-				image.Parent = billboard
-
-				billboard.Parent = root
-				return billboard
-			end)
-			if not ok or not created then return end
-			marker = created
-			object.friendMarker = marker
-		end
-
-		pcall(function()
-			if marker.Parent ~= root then marker.Parent = root end
-			marker.Adornee = root
-			local topOffset = root.Size.Y * 0.5 + 3.0
-			if boundsCFrame and boundsSize then
-				topOffset = (boundsCFrame.Position.Y + boundsSize.Y * 0.5) - root.Position.Y + 3.0
-			end
-			marker.StudsOffsetWorldSpace = Vector3.new(0, math.max(topOffset, 3.5), 0)
-			marker.Enabled = true
-		end)
-	end
-
 	local function updateEntry(player, object, camera, localRoot, viewport)
 		if State.Toggles.EspTeamCheck and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then
 			hideEntry(object)
@@ -4881,7 +4430,6 @@ function __WaveLiteSetupEsp()
 			object.skeletonPairs = nil
 			return
 		end
-
 		local root = object.character == character and object.root or nil
 		if not root or not root.Parent or not root:IsDescendantOf(character) then
 			root = getRoot(character)
@@ -4894,7 +4442,6 @@ function __WaveLiteSetupEsp()
 			object.skeletonPairs = nil
 			return
 		end
-
 		if object.character ~= character or object.root ~= root then
 			hideEntry(object)
 			object.character = character
@@ -4902,7 +4449,6 @@ function __WaveLiteSetupEsp()
 			object.humanoid = nil
 			object.skeletonPairs = nil
 		end
-
 		local humanoid = object.humanoid
 		if not humanoid or not humanoid.Parent or not humanoid:IsDescendantOf(character) then
 			humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -4913,25 +4459,19 @@ function __WaveLiteSetupEsp()
 			hideEntry(object)
 			return
 		end
-
 		local boundsCFrame, boundsSize = getCharacterBounds(character)
 		local friendOn = State.Toggles.FriendEsp and FriendChecks.isFriend(player)
 		local white = Color3.fromRGB(255, 255, 255)
 		local playerColor = friendOn and friendColor or white
-		-- World-space indicators stay independent of screen-space projection.
-		updateFriendMarker(object, root, boundsCFrame, boundsSize, friendOn)
-		updateCharacterOutline(object, character, playerColor, State.Toggles.Outlines)
 		if not boundsCFrame or not boundsSize then
-			hideEntry(object, true, true)
+			hideEntry(object)
 			return
 		end
-
 		local boxX, boxY, boxWidth, boxHeight = projectBounds(object, boundsCFrame, boundsSize, camera)
 		if not boxX then
-			hideEntry(object, true, true)
+			hideEntry(object)
 			return
 		end
-
 		local boxRight = boxX + boxWidth
 		local boxBottom = boxY + boxHeight
 		local centerX = boxX + boxWidth * 0.5
@@ -4939,7 +4479,6 @@ function __WaveLiteSetupEsp()
 		local outlineColor = friendOn and friendColor or Color3.fromRGB(0, 0, 0)
 		local outlinesEnabled = true
 		setFriendLayer(object, friendOn)
-
 		if State.Toggles.NameEsp then
 			local displayName = player.DisplayName
 			if not displayName or displayName == "" then displayName = player.Name end
@@ -4948,7 +4487,6 @@ function __WaveLiteSetupEsp()
 		else
 			setVisible(object.drawings.name, false)
 		end
-
 		if State.Toggles.BoxOutline then
 			if outlinesEnabled then
 				setSquare(object.drawings.box2DOutline, Vector2.new(boxX - 1, boxY - 1),
@@ -4962,7 +4500,6 @@ function __WaveLiteSetupEsp()
 			setVisible(object.drawings.box2D, false)
 			setVisible(object.drawings.box2DOutline, false)
 		end
-
 		if State.Toggles.BoxCorners then
 			local mainLines = ensureLineArray(object.drawings, "box2DCorners", 8, 3, friendOn)
 			local outlineLines = ensureLineArray(object.drawings, "box2DCornersOutline", 8, 2, friendOn)
@@ -4977,7 +4514,6 @@ function __WaveLiteSetupEsp()
 				for index = 1, #outlineLines do setVisible(outlineLines[index], false) end
 			end
 		end
-
 		if State.Toggles.Box3D then
 			local mainLines = ensureLineArray(object.drawings, "box3D", 12, 3, friendOn)
 			local outlineLines = ensureLineArray(object.drawings, "box3DOutline", 12, 2, friendOn)
@@ -4992,7 +4528,6 @@ function __WaveLiteSetupEsp()
 				for index = 1, #outlineLines do setVisible(outlineLines[index], false) end
 			end
 		end
-
 		if State.Toggles.Box3DCorners then
 			local mainLines = ensureLineArray(object.drawings, "box3DCorners", 24, 3, friendOn)
 			local outlineLines = ensureLineArray(object.drawings, "box3DCornersOutline", 24, 2, friendOn)
@@ -5007,7 +4542,6 @@ function __WaveLiteSetupEsp()
 				for index = 1, #outlineLines do setVisible(outlineLines[index], false) end
 			end
 		end
-
 		if State.Toggles.Skeleton then
 			updateSkeleton(object, character, camera, playerColor, outlinesEnabled, outlineColor, friendOn)
 		else
@@ -5020,7 +4554,6 @@ function __WaveLiteSetupEsp()
 				for index = 1, #outlineLines do setVisible(outlineLines[index], false) end
 			end
 		end
-
 		local rootPoint = camera:WorldToViewportPoint(root.Position)
 		if State.Toggles.Tracers and rootPoint.Z > 0.05 then
 			local fromPoint = Vector2.new(viewport.X * 0.5, viewport.Y - 2)
@@ -5036,19 +4569,16 @@ function __WaveLiteSetupEsp()
 			setVisible(object.drawings.tracer, false)
 			setVisible(object.drawings.tracerOutline, false)
 		end
-
 		if State.Toggles.Distance then
 			setText(object.drawings.distance, string.format("[%d]", distance),
 				Vector2.new(centerX, boxBottom + 3), white, 9, true)
 		else
 			setVisible(object.drawings.distance, false)
 		end
-
 		local equippedTool = nil
 		if State.Toggles.ShowItems then
 			equippedTool = character:FindFirstChildWhichIsA("Tool")
 		end
-
 		local sideTextY = boxY + 2
 		if State.Toggles.ShowItems and equippedTool then
 			setText(object.drawings.itemText, equippedTool.Name,
@@ -5057,7 +4587,6 @@ function __WaveLiteSetupEsp()
 		else
 			setVisible(object.drawings.itemText, false)
 		end
-
 		if State.Toggles.HealthBars and humanoid then
 			updateHealthBar(object, boxX, boxY, boxHeight, humanoid)
 		else
@@ -5066,10 +4595,8 @@ function __WaveLiteSetupEsp()
 			setVisible(object.drawings.healthFill, false)
 		end
 	end
-
 	local function updateEspFrame(deltaTime, force)
 		if not running then return end
-
 		local selectedRate = State.EspUpdateRate or "Auto"
 		local targetHz = tonumber(selectedRate)
 		if not force and targetHz then
@@ -5078,48 +4605,39 @@ function __WaveLiteSetupEsp()
 			if updateAccumulator + 0.000001 < interval then return end
 			updateAccumulator %= interval
 		else
-			-- Auto = one update per rendered Roblox frame. The selected label remains Auto.
 			updateAccumulator = 0
 		end
-
 		local camera = workspace.CurrentCamera
 		if not camera then
 			for _, object in pairs(espObjects) do hideEntry(object) end
 			return
 		end
 		Camera = camera
-
 		if not anyEspOn() then
 			for _, object in pairs(espObjects) do hideEntry(object) end
 			return
 		end
-
 		local localCharacter = LocalPlayer.Character
 		local localRoot = localCharacter and getRoot(localCharacter) or nil
 		local viewport = camera.ViewportSize
-
 		for index = 1, #trackedPlayers do
 			local player = trackedPlayers[index]
 			if player and player.Parent == Players then
-				if State.Toggles.FriendEsp then FriendChecks.refresh(player) end
 				local object = espObjects[player] or createEntry(player)
 				local ok = pcall(updateEntry, player, object, camera, localRoot, viewport)
 				if not ok then hideEntry(object) end
 			end
 		end
 	end
-
 	local function clearAll()
 		for player in pairs(espObjects) do destroyEntry(player) end
 	end
-
 	local function syncEspLoop()
 		if anyEspOn() and not running then
 			running = true
 			updateAccumulator = 0
 			pcall(function() RunService:UnbindFromRenderStep(renderName) end)
 			RunService:BindToRenderStep(renderName, Enum.RenderPriority.Last.Value + 1, function(deltaTime)
-				-- Keep screen-space ESP in sync with every Camlock camera adjustment.
 				updateEspFrame(deltaTime, camLockActive)
 			end)
 			updateEspFrame(0, true)
@@ -5130,19 +4648,16 @@ function __WaveLiteSetupEsp()
 			clearAll()
 		end
 	end
-
 	local function setEspToggle(key, value)
 		State.Toggles[key] = value and true or false
 		syncEspLoop()
 		if running then updateEspFrame(0, true) end
 	end
-
 	_G.WaveLite_NameEsp_Toggle = function(on) setEspToggle("NameEsp", on) end
 	_G.WaveLite_Tracers_Toggle = function(on) setEspToggle("Tracers", on) end
 	_G.WaveLite_FriendEsp_Toggle = function(on) setEspToggle("FriendEsp", on) end
 	_G.WaveLite_EspTeamCheck_Toggle = function(on) setEspToggle("EspTeamCheck", on) end
 	_G.WaveLite_Skeleton_Toggle = function(on) setEspToggle("Skeleton", on) end
-	_G.WaveLite_Outlines_Toggle = function(on) setEspToggle("Outlines", on) end
 	_G.WaveLite_BoxOutline_Toggle = function(on) setEspToggle("BoxOutline", on) end
 	_G.WaveLite_BoxCorners_Toggle = function(on) setEspToggle("BoxCorners", on) end
 	_G.WaveLite_Box3D_Toggle = function(on) setEspToggle("Box3D", on) end
@@ -5150,20 +4665,17 @@ function __WaveLiteSetupEsp()
 	_G.WaveLite_HealthBars_Toggle = function(on) setEspToggle("HealthBars", on) end
 	_G.WaveLite_Distance_Toggle = function(on) setEspToggle("Distance", on) end
 	_G.WaveLite_ShowItems_Toggle = function(on) setEspToggle("ShowItems", on) end
-
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
 			trackedPlayers[#trackedPlayers + 1] = player
 		end
 	end
-
 	local playerAddedConnection = Players.PlayerAdded:Connect(function(player)
 		if player ~= LocalPlayer then
 			trackedPlayers[#trackedPlayers + 1] = player
 			FriendChecks.cache[player] = nil
 		end
 	end)
-
 	local playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
 		destroyEntry(player)
 		for index = #trackedPlayers, 1, -1 do
@@ -5173,7 +4685,6 @@ function __WaveLiteSetupEsp()
 			end
 		end
 	end)
-
 	local function cleanupEsp()
 		running = false
 		pcall(function() RunService:UnbindFromRenderStep(renderName) end)
@@ -5185,15 +4696,12 @@ function __WaveLiteSetupEsp()
 		end
 	end
 	environment.Wave15EspDrawingCleanup = cleanupEsp
-
 	ScreenGui.AncestryChanged:Connect(function(_, parent)
 		if not parent then cleanupEsp() end
 	end)
 end
 __WaveLiteSetupEsp()
 __WaveLiteSetupEsp = nil
-
--- Bridge the new UI switches to the existing feature routines. TargetUI is intentionally not connected.
 local FeatureToggleCallbacks = {
 	Camlock = "WaveLite_CamLock_Toggle", Silent = "WaveLite_Silent_Toggle",
 	Fly = "WaveLite_Fly_Toggle", Noclip = "WaveLite_Noclip_Toggle",
@@ -5201,7 +4709,7 @@ local FeatureToggleCallbacks = {
 	FriendEsp = "WaveLite_FriendEsp_Toggle", EspTeamCheck = "WaveLite_EspTeamCheck_Toggle",
 	AutoPickup = "WaveLite_AutoPickup_Toggle",
 	Skeleton = "WaveLite_Skeleton_Toggle",
-	Outlines = "WaveLite_Outlines_Toggle", BoxOutline = "WaveLite_BoxOutline_Toggle",
+	BoxOutline = "WaveLite_BoxOutline_Toggle",
 	Box3D = "WaveLite_Box3D_Toggle", BoxCorners = "WaveLite_BoxCorners_Toggle",
 	HealthBars = "WaveLite_HealthBars_Toggle", Box3DCorners = "WaveLite_Box3DCorners_Toggle", ShowItems = "WaveLite_ShowItems_Toggle",
 	Distance = "WaveLite_Distance_Toggle", NoFog = "WaveLite_NoFog_Toggle",
@@ -5217,9 +4725,6 @@ for stateName, globalName in pairs(FeatureToggleCallbacks) do
 		if type(callback) == "function" then callback(on) end
 	end
 end
--- TargetUI, AutoLoad, and config persistence intentionally have no callbacks in this build.
-
------------------------------------------------------------------- dragging / input
 local dragging, dragStart, startPos = false, nil, nil
 Header.InputBegan:Connect(function(input)
 	if waitingForKey then return end
@@ -5231,7 +4736,6 @@ Header.InputBegan:Connect(function(input)
 		end)
 	end
 end)
-
 table.insert(Connections, UserInputService.InputChanged:Connect(function(input)
 	if activeSlider then
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
@@ -5250,7 +4754,6 @@ table.insert(Connections, UserInputService.InputChanged:Connect(function(input)
 		end
 	end
 end))
-
 table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
 	local endedName = inputToKeyName(input)
 	if endedName then heldInputNames[endedName] = nil end
@@ -5262,11 +4765,9 @@ table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
 		dragging = false
 	end
 end))
-
 table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	local keyName = inputToKeyName(input)
 	if keyName then heldInputNames[keyName] = true end
-
 	if waitingForKey then
 		if input.KeyCode == Enum.KeyCode.Escape then
 			waitingForKey.Box.Text = shortKeyName(State.Keybinds[waitingForKey.Name])
@@ -5284,7 +4785,6 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
 		return
 	end
 	if gameProcessed then return end
-
 	if keyName == (State.Keybinds.MenuToggle or "Insert") then
 		Main.Visible = not Main.Visible
 		if not Main.Visible then closeDropdown() end
@@ -5301,16 +4801,12 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
 		_G.WaveLite_Silent_Toggle()
 	end
 end))
-
------------------------------------------------------------------- init
 applyTheme("dark")
 syncLogoVisibility()
 syncBlurButton()
 applyArrayPosition()
 refreshArrayList()
 BlurController.RefreshGlass()
-
--- The menu starts with the default Daydream backdrop; no settings or config files are read or written.
 setThemePreset(State.Theme)
 setBackdropPreset(State.Preset)
 if setCombatType then setCombatType(State.CombatType) end
