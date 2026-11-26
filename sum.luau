@@ -2826,43 +2826,43 @@ end)
 		end)
 	end
 	startGameSpecificACS()
-	local oldNamecall
+	local baseNamecall
 	if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
 		local callback=function(self,...)
-			if not silent.active or not silent.enabled or self~=workspace or silent.useACS then return oldNamecall(self,...) end
+			if not silent.active or not silent.enabled or self~=workspace or silent.useACS then
+				return baseNamecall(self,...)
+			end
 			local method=getnamecallmethod()
-			local selected=State.SilentMethod
-			if method~=selected and not (selected=="FindPartOnRay" and method=="findPartOnRay") then return oldNamecall(self,...) end
+			if method~="Raycast" then return baseNamecall(self,...) end
 			silent.observed += 1
-			silent.lastMethod = method
+			silent.lastMethod="Raycast"
 			local cache=canRedirect()
 			if not cache then
-				silent.lastReject = "No fresh target cache"
-				return oldNamecall(self,...)
+				silent.lastReject="No fresh target cache"
+				return baseNamecall(self,...)
 			end
 			local args=table.pack(...)
-			if not validateOriginalArguments(method,args) then
-				silent.lastReject = "Unexpected arguments for " .. tostring(method)
-				return oldNamecall(self,...)
+			local origin,direction,raycastParams=args[1],args[2],args[3]
+			if typeof(origin)~="Vector3" or typeof(direction)~="Vector3" or (raycastParams~=nil and typeof(raycastParams)~="RaycastParams") then
+				silent.lastReject="Unexpected arguments for Raycast"
+				return baseNamecall(self,table.unpack(args,1,args.n))
 			end
-			local origin=method=="Raycast" and args[1] or args[1].Origin
 			local newDirection=getOriginalDirection(origin,cache.position)
 			if not newDirection then
-				silent.lastReject = "Target too close to ray origin"
-				return oldNamecall(self,...)
+				silent.lastReject="Target too close to ray origin"
+				return baseNamecall(self,table.unpack(args,1,args.n))
 			end
-			if method=="Raycast" then
-				args[2]=newDirection
-			else
-				args[1]=Ray.new(origin,newDirection)
-			end
+			args[2]=newDirection
 			silent.redirected+=1
 			silent.lastReject=nil
-			return oldNamecall(self,table.unpack(args,1,args.n))
+			return baseNamecall(self,table.unpack(args,1,args.n))
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
-		local ok=pcall(function()oldNamecall=hookmetamethod(game,"__namecall",closure)end)
-		silent.hooked=ok and type(oldNamecall)=="function"
+		local ok,previous=pcall(function() return hookmetamethod(game,"__namecall",closure) end)
+		if ok and type(previous)=="function" then
+			baseNamecall=previous
+			silent.hooked=true
+		end
 	end
 	local oldIndex
 	if type(hookmetamethod)=="function" then
@@ -4068,19 +4068,48 @@ function __WaveLiteSetupEsp()
 			end
 		end
 	end
+	local drawingRemovalQueue = {}
+	local drawingRemovalHead, drawingRemovalTail = 1, 0
+	local drawingRemovalRunning = false
+	local function queueDrawingRemoval(drawings)
+		drawingRemovalTail += 1
+		drawingRemovalQueue[drawingRemovalTail] = drawings
+		if drawingRemovalRunning then return end
+		drawingRemovalRunning = true
+		task.defer(function()
+			local removed = 0
+			while drawingRemovalHead <= drawingRemovalTail do
+				local current = drawingRemovalQueue[drawingRemovalHead]
+				drawingRemovalQueue[drawingRemovalHead] = nil
+				drawingRemovalHead += 1
+				if current then
+					for _, value in pairs(current) do
+						if type(value) == "table" then
+							for _, drawing in ipairs(value) do
+								removeDrawing(drawing)
+								removed += 1
+								if removed % 24 == 0 then task.wait() end
+							end
+						else
+							removeDrawing(value)
+							removed += 1
+							if removed % 24 == 0 then task.wait() end
+						end
+					end
+				end
+			end
+			table.clear(drawingRemovalQueue)
+			drawingRemovalHead, drawingRemovalTail = 1, 0
+			drawingRemovalRunning = false
+		end)
+	end
 	local function destroyEntry(player)
 		local object = espObjects[player]
 		if not object then return end
 		hideEntry(object)
-		for _, value in pairs(object.drawings) do
-			if type(value) == "table" then
-				for _, drawing in ipairs(value) do removeDrawing(drawing) end
-			else
-				removeDrawing(value)
-			end
-		end
 		espObjects[player] = nil
 		FriendChecks.cache[player] = nil
+		queueDrawingRemoval(object.drawings)
 	end
 	local function createEntry(player)
 		local drawings = {
@@ -4685,12 +4714,16 @@ function __WaveLiteSetupEsp()
 			end
 		end
 	end)
+	local cleanupStarted = false
 	local function cleanupEsp()
+		if cleanupStarted then return end
+		cleanupStarted = true
 		running = false
 		pcall(function() RunService:UnbindFromRenderStep(renderName) end)
 		pcall(function() playerAddedConnection:Disconnect() end)
 		pcall(function() playerRemovingConnection:Disconnect() end)
 		clearAll()
+		table.clear(trackedPlayers)
 		if environment.Wave15EspDrawingCleanup == cleanupEsp then
 			environment.Wave15EspDrawingCleanup = nil
 		end
