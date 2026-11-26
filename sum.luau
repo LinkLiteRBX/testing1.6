@@ -13,8 +13,10 @@ local VirtualUser      = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- global connections (UserInputService etc). Unload UI disconnects all of these.
 local Connections = {}
 
+------------------------------------------------------------------ cleanup
 local WaveGuiName = "Wave1.5"
 local function destroyIfExists(parent, name)
 	pcall(function()
@@ -33,6 +35,7 @@ pcall(function()
 	if pg then cleanupWaveGui(pg) end
 end)
 
+------------------------------------------------------------------ state (UI values only)
 local State = {
 	Sliders = {
 		Prediction = 0.007, Smoothness = 2.50,
@@ -43,19 +46,53 @@ local State = {
 	Toggles = {
 		Noclip = false, Fly = false,
 		NameEsp = false, BoxOutline = false, Box3D = false, Tracers = false,
-		FriendEsp = false, TeamIndicator = false, Skeleton = false, Outlines = false, Distance = false, HealthBars = false, ShowItems = false, Box3DCorners = false,
+		FriendEsp = false, EspTeamCheck = false, Skeleton = false, Outlines = false, Distance = false, HealthBars = false, ShowItems = false, Box3DCorners = false,
 		NoFog = false, DisableShadows = false, LowGfx = false, Maxzoom = false,
 		FovCircle = false, SilentFovCircle = false, AdaptiveAim = false,
-		TeamCheck = true, WallCheck = false, DeadCheck = true, StickyAim = false, TargetUI = false,
+		TeamCheck = true, FriendCheck = false, WallCheck = false, DeadCheck = true, StickyAim = false, TargetUI = false,
 		Camlock = false, Silent = false, AntiAfk = false, InfJump = false, AntiSeat = false,
 		AutoPickup = false, Spinbot = false, BoxCorners = false,
-
-		UIBlur = false, UIShadow = true, ArrayList = true, AutoLoad = false, CurrentSong = false,
+		-- settings page
+		UIBlur = false, UIShadow = true, ArrayList = true, AutoLoad = false,
 	},
 	Keybinds = { CamLockToggle = nil, SilentToggle = nil, FlyToggle = nil, TweenClickTpToggle = nil, MenuToggle = "Insert" },
-	AimPart = "UpperTorso", EspUpdateRate = "Auto", FlyType = "CFrame", TpMode = "Tween",
-	Theme = "None", ArrayPosition = "Btm Right", Preset = "Daydream", LastfmUser = "",
+	AimPart = "UpperTorso", SilentMethod = "Raycast", EspUpdateRate = "Auto", FlyType = "CFrame", TpMode = "Tween",
+	Theme = "None", ArrayPosition = "Btm Left", Preset = "Daydream",
 }
+
+local FriendChecks = {}
+do
+	local friendCache = setmetatable({}, { __mode = "k" })
+	local friendPending = setmetatable({}, { __mode = "k" })
+	local function refreshFriend(player)
+		if not player or player == LocalPlayer or friendCache[player] ~= nil or friendPending[player] then return end
+		friendPending[player] = true
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return LocalPlayer:IsFriendsWith(player.UserId)
+			end)
+			if player.Parent == Players then friendCache[player] = ok and result == true or false end
+			friendPending[player] = nil
+		end)
+	end
+	local function isFriend(player)
+		if friendCache[player] == nil then refreshFriend(player) end
+		return friendCache[player] == true
+	end
+	local function passesFriendCheck(player)
+		if not State.Toggles.FriendCheck then return true end
+		if not player or player == LocalPlayer then return false end
+		if friendCache[player] == nil then
+			refreshFriend(player)
+			return false
+		end
+		return friendCache[player] ~= true
+	end
+	FriendChecks.cache = friendCache
+	FriendChecks.refresh = refreshFriend
+	FriendChecks.isFriend = isFriend
+	FriendChecks.passes = passesFriendCheck
+end
 
 local SliderConfig = {
 	Prediction = { Min = 0, Max = 0.10, Decimals = 3 }, Smoothness = { Min = 1, Max = 10, Decimals = 2 },
@@ -68,6 +105,7 @@ local SliderConfig = {
 local GuiParent = CoreGui
 pcall(function() if gethui then GuiParent = gethui() end end)
 
+------------------------------------------------------------------ site assets (logo / theme icons)
 local SiteRoot = "https://shimmering-babka-52d2f9.netlify.app"
 local SiteAssets = {
 	logo = "logo.png",
@@ -110,6 +148,7 @@ local function getSiteAsset(name)
 	return nil
 end
 
+-- Resolves a Decal asset id to its actual image texture (used for the dropdown chevron)
 local function resolveDecalTexture(assetId)
 	local function normalize(reference)
 		if type(reference) ~= "string" or reference == "" then return nil end
@@ -163,6 +202,7 @@ local function resolveDecalTexture(assetId)
 	return nil
 end
 
+------------------------------------------------------------------ themes
 local Themes = {
 	dark = {
 		Background = Color3.fromRGB(22,22,26), Panel = Color3.fromRGB(28,28,33), Body = Color3.fromRGB(24,24,29),
@@ -181,7 +221,7 @@ local Themes = {
 		Scroll = Color3.fromRGB(145,150,163), BlurBranch = Color3.fromRGB(248,249,252), BlurPill = Color3.fromRGB(242,245,250),
 	},
 }
-
+-- Toggle / slider palette. SliderFill is the accent color (toggles and sliders pick it up).
 Themes.dark.Highlight    = Color3.fromRGB(255,255,255)
 Themes.light.Highlight   = Color3.fromRGB(0,0,0)
 Themes.dark.Track        = Color3.fromRGB(51,51,56)
@@ -191,18 +231,21 @@ Themes.dark.ToggleKnobOn = Color3.fromRGB(255,255,255)
 Themes.light.SliderFill   = Color3.fromRGB(40,42,48)
 Themes.light.ToggleOff    = Color3.fromRGB(255,255,255)
 Themes.light.ToggleKnobOn = Color3.fromRGB(255,255,255)
-
+-- dropdown chevron tint
 Themes.dark.Chevron  = Color3.fromRGB(190,192,200)
 Themes.light.Chevron = Color3.fromRGB(96,101,112)
-
+-- wave logo / header icon / settings icon tint
 Themes.dark.Logo  = Color3.fromRGB(255,255,255)
 Themes.light.Logo = Color3.fromRGB(25,25,30)
 
+-- Presets. Each preset has a dark and a light variant: Accent (toggle on-pill, slider fill, logo, icons),
+-- Track (toggle off-pill / on-dot, slider track) and, for dark, an optional Background. Outlines, rules,
+-- scroll bars, chevrons and dropdown/keybind boxes are derived from the accent. "None" is the base palette.
 local buildTheme
 local PresetNames = { "None", "Dracula", "Chocolate", "Nord", "Ocean", "Rose", "Light" }
 local PresetSet = {}
 for _, n in ipairs(PresetNames) do PresetSet[n] = true end
-local BackdropSet = { None = true, Daydream = true, ["Last.fm"] = true }
+local BackdropSet = { None = true, Daydream = true } -- available image backdrop presets
 do
 local function C(r, g, b) return Color3.fromRGB(r, g, b) end
 local BaseThemes = {}
@@ -233,11 +276,13 @@ local Presets = {
 		light = { Accent = C(190,60,100),  Track = C(215,190,198) },
 	},
 }
-
+-- Backdrop presets (Settings > Appearance > Presets) are a full look, not just an image: while one is active its
+-- palette replaces the Theme dropdown colours (dark mode only). Accent = toggle on-pill, slider fill, logo, settings
+-- icon; Track = toggle off-pill / on-dot and slider track. Lines, scroll bars, chevrons and boxes follow the accent.
 local BackdropPalettes = {
-	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) },
+	Daydream = { Accent = C(232,160,148), Track = C(54,42,70) }, -- sunset leaves over dusk purple
 }
-
+-- rebuilds Themes[mode] in place from the base palette + the selected preset (State.Theme)
 buildTheme = function(mode)
 	local t, base = Themes[mode], BaseThemes[mode]
 	for k, v in pairs(base) do t[k] = v end
@@ -280,10 +325,9 @@ local themedToggles  = {}
 local keybindSyncs   = {}
 local choiceSyncs    = {}
 local arrayListLabels = {}
-local ToggleCallbacks = {}
+local ToggleCallbacks = {} -- [stateName] = function(newValue), used by the settings toggles
 local TemporarilyDisabledToggles = {
 	TargetUI = true,
-	AutoPickup = true,
 }
 local DisabledToggleTextColor = Color3.fromRGB(235, 76, 76)
 local refreshArrayList
@@ -303,7 +347,7 @@ local function nextObjectName()
 	objectNameCounter += 1
 	return string.format("x%02da", objectNameCounter)
 end
-
+-- Parent is assigned last so properties aren't set on an already-parented instance
 local function make(className, props)
 	local obj = Instance.new(className)
 	local parent
@@ -319,6 +363,8 @@ local function tween(obj, t, props)
 	TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
 end
 
+-- Only one dropdown is open at a time. Each dropdown registers its close function here while open.
+-- objects of any open/closed dropdown popup the mouse is currently over (rows behind must not highlight)
 local dropdownHovered = {}
 local function isOverDropdown()
 	return next(dropdownHovered) ~= nil
@@ -330,11 +376,14 @@ local function closeDropdown()
 	if close then pcall(close) end
 end
 
+-- After a keybind is captured from a mouse button, the click that finished the capture must not
+-- also press whatever is under the cursor (toggle, button, slider...). Controls check inputBlocked().
 local keybindClickBlockUntil = 0
 local function inputBlocked()
 	return os.clock() < keybindClickBlockUntil
 end
 
+------------------------------------------------------------------ helpers
 local function inputToKeyName(input)
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		local name = input.KeyCode.Name
@@ -423,7 +472,7 @@ local function applyTheme(themeName, animate)
 	end
 	if refreshArrayList then refreshArrayList() end
 end
-
+------------------------------------------------------------------ root gui
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = WaveGuiName
 ScreenGui.Parent = GuiParent
@@ -438,17 +487,24 @@ local HeaderHeight, BottomHeight, BodyPadding = 38, 24, 8
 local PanelWidth = MainWidth - BodyPadding * 2
 local SideHeight = MainHeight - HeaderHeight - BottomHeight - 12
 local RowHeight, SliderRowHeight = 22, 32
-
+-- Spacing system: every item inside a section (row, slider, keybind, dropdown, nested section,
+-- and the first row under a header) is separated by RowGap. Top-level sections are separated by SectionGap.
+-- Nothing adds trailing space after a section's last item, so open/closed or slider/toggle endings never change gaps.
+-- SectionGap is the gap between every category, including Esp -> Player (EspBottomGap stays 0 so the
+-- Box Esp sub-category ends with the same spacing as any other category).
 local RowGap, SectionGap = 4, 5
 local EspBottomGap = 0
-
+-- Section header divider line: even header heights put the line exactly on the header's centerline;
+-- RuleNudge shifts it (in px, +down) if you want to fine-tune it against the title text.
 local RuleNudge = 0
 local ToggleWidth, ToggleHeight = 30, 16
-
+-- Background transparency shared by the dropdown-style controls (dropdown boxes, keybind boxes, text boxes, buttons).
+-- 0 = solid, 1 = invisible. Higher = more see-through / glassy, lower = more solid.
 local ControlTransparency = 0.15
 
+-- Dropdown sizing: every dropdown in the UI uses this one width, so long option names must be abbreviated.
 local DropdownWidth, DropdownHeaderHeight, DropdownOptionHeight = 90, 18, 18
-
+-- dropdown lists taller than this many options scroll
 local MaxDropdownOptions = 8
 
 local Main = make("Frame", {
@@ -460,7 +516,7 @@ registerThemed(Main, "BackgroundColor3", "Background")
 make("UICorner", { Parent = Main, CornerRadius = UDim.new(0, 4) })
 local MainStroke = make("UIStroke", { Parent = Main, Color = Theme.Border, Thickness = 1 })
 registerThemed(MainStroke, "Color", "Border")
-
+-- UI Shadow toggle (settings) fades this object: on = ShadowOnTransparency, off = fully transparent
 local ShadowObj
 local ShadowOnTransparency = 0.46
 pcall(function()
@@ -476,9 +532,13 @@ pcall(function()
 	ShadowObj = shadow
 end)
 
-local setBackdropPreset, setLastfmUser, restartLastfmPolling, refreshLastfmPolling, songTrackHook
+------------------------------------------------------------------ preset backdrop (image behind the menu)
+-- Picked from Settings > Appearance > Presets. The image is an un-blurred picture inside the window, under every
+-- control, with a tint + inner shadow on top so it reads as an image sitting behind a glass pane.
+-- (The old inset "pane" outline was removed: it drew a second, smaller frame inside the real UI.)
+local setBackdropPreset
 do
-
+	-- Daydream is the only image preset. None hides the backdrop.
 	local PresetSiteRoot = "https://bright-halva-7d5837.netlify.app"
 	local PresetFiles = { Daydream = "daydream_ui.jpg" }
 	local PresetCacheTag = "v1"
@@ -515,16 +575,14 @@ do
 	})
 
 	local function edge(size, anchor, position, rotation, vertical)
-		local f = make("Frame", {
+		local frame = make("Frame", {
 			Parent = group, AnchorPoint = anchor, Position = position, BackgroundColor3 = Color3.new(0, 0, 0),
 			BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 4,
 			Size = vertical and UDim2.new(1, 0, 0, size) or UDim2.new(0, size, 1, 0),
 		})
 		make("UIGradient", {
-			Parent = f, Rotation = rotation,
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1),
-			}),
+			Parent = frame, Rotation = rotation,
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1) }),
 		})
 	end
 	edge(EdgeShadow, Vector2.new(0, 0), UDim2.fromScale(0, 0), 90, true)
@@ -564,7 +622,6 @@ do
 			end
 		end
 		if not body then pcall(function() body = game:HttpGet(url) end) end
-
 		if type(body) ~= "string" or #body < 1000 or body:sub(1, 3) ~= "\255\216\255" then return nil end
 		if not pcall(writefile, path, body) then return nil end
 		return register()
@@ -574,280 +631,32 @@ do
 	local fadeTween
 	local function fadeTo(value, duration)
 		if fadeTween then fadeTween:Cancel() end
-		fadeTween = TweenService:Create(group, TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { GroupTransparency = value })
+		fadeTween = TweenService:Create(group, TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+			GroupTransparency = value,
+		})
 		fadeTween:Play()
 		return fadeTween
 	end
 
-	local LastfmEndpoint = "https://lastfm-last-played.biancarosa.com.br/"
-	local LastfmPollSeconds = 10
-	local LastfmBlur = 6
-	local LastfmSaturation = 1.45
-	local LastfmOnlyWhenPlaying = false
-	local LastfmFadeSeconds = 0.9
-	local LastfmTint = TintTransparency
-
-	local lfA = make("ImageLabel", {
-		Parent = group, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = "",
-		ImageTransparency = 1, ScaleType = Enum.ScaleType.Crop, ZIndex = 1,
-	})
-	local lfB = make("ImageLabel", {
-		Parent = group, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = "",
-		ImageTransparency = 1, ScaleType = Enum.ScaleType.Crop, ZIndex = 0,
-	})
-	local lfFront = lfA
-	local lfAsset
-	local lfKey = ""
-	local lfSession = 0
-	local lfFiles = {}
-	local lfFading = false
-	local lfQueued
-
-	local function lfGet(url)
-		local requester = resolveRequest()
-		if requester then
-			local ok, response = pcall(requester, { Url = url, Method = "GET", Timeout = 15, Headers = { ["Cache-Control"] = "no-cache" } })
-			if ok and type(response) == "table" and response.Success ~= false
-				and (not response.StatusCode or response.StatusCode < 400) and type(response.Body) == "string" then
-				return response.Body
-			end
-		end
-		local ok, body = pcall(function() return game:HttpGet(url) end)
-		if ok and type(body) == "string" then return body end
-		return nil
-	end
-	local function lfNormalize(value)
-		if type(value) ~= "string" then return "" end
-		value = value:gsub("&amp;", "&"):gsub("&#38;", "&")
-		if value:sub(1, 2) == "//" then value = "https:" .. value end
-		value = value:gsub("^http://", "https://")
-
-		if not value:match("^https://") or value:find("2a96cbd8b46e442fc41c2b86b821562f", 1, true) then return "" end
-		return value
-	end
-	local function lfProxy(url)
-		return "https://wsrv.nl/?url=" .. HttpService:UrlEncode(url) .. "&w=" .. MainWidth .. "&h=" .. MainHeight
-			.. "&fit=cover&blur=" .. LastfmBlur .. "&sat=" .. LastfmSaturation .. "&output=png"
-	end
-
-	local function lfAssetFromUrl(url)
-		if type(writefile) ~= "function" or type(getcustomasset) ~= "function" then return nil end
-		local body = lfGet(url)
-		if not body or #body == 0 or #body > 5000000 then return nil end
-		local extension
-		if body:sub(1, 8) == "\137PNG\r\n\26\n" then extension = ".png"
-		elseif body:sub(1, 3) == "\255\216\255" then extension = ".jpg"
-		else return nil end
-		local path = "wave16_lfm_" .. HttpService:GenerateGUID(false):gsub("%-", "") .. extension
-		if not pcall(writefile, path, body) then return nil end
-		table.insert(lfFiles, path)
-		local ok, asset = pcall(getcustomasset, path)
-		while #lfFiles > 4 do
-			local old = table.remove(lfFiles, 1)
-			if type(delfile) == "function" then pcall(delfile, old) end
-		end
-		if ok and type(asset) == "string" and asset ~= "" then return asset end
-		return nil
-	end
-	local function lfSelectImage(value)
-		if type(value) == "string" then return lfNormalize(value) end
-		if type(value) ~= "table" then return "" end
-		local direct = lfNormalize(value["#text"] or value.url)
-		if direct ~= "" then return direct end
-		local selected, rank = "", -1
-		local ranks = { small = 1, medium = 2, large = 3, extralarge = 4, mega = 5 }
-		for _, item in pairs(value) do
-			if type(item) == "table" then
-				local candidate = lfNormalize(item["#text"] or item.url)
-				local size = ranks[item.size] or 0
-				if candidate ~= "" and size >= rank then selected, rank = candidate, size end
-			end
-		end
-		return selected
-	end
-
-	local function lfPageImage(page)
-		if type(page) ~= "string" or not page:match("^https://www%.last%.fm/") then return "" end
-		local html = lfGet(page)
-		if not html then return "" end
-		for tag in html:gmatch("<meta%s+[^>]+>") do
-			if tag:find("og:image", 1, true) then
-				local url = lfNormalize(tag:match('content=["\']([^"\']+)'))
-				if url ~= "" then return url end
-			end
-		end
-		return ""
-	end
-	local function lfReadTrack(user)
-		local body = lfGet(LastfmEndpoint .. HttpService:UrlEncode(user) .. "/latest-song")
-		if not body then return nil end
-		local decoded, data = pcall(function() return HttpService:JSONDecode(body) end)
-		if not decoded or type(data) ~= "table" then return nil end
-		local track = data.track
-		if type(track) ~= "table" or type(track.name) ~= "string" or track.name == "" then return nil end
-		local attr = track["@attr"]
-		local playing = type(attr) == "table" and (attr.nowplaying == "true" or attr.nowplaying == true)
-		local performer = track.artist
-		if type(performer) == "table" then performer = performer["#text"] or performer.name end
-		local image = lfSelectImage(track.image)
-		if image == "" and type(track.album) == "table" then image = lfSelectImage(track.album.image) end
-		if image == "" then image = lfNormalize(track.artwork or track.cover) end
-		return {
-			key = track.name .. "\0" .. tostring(performer or ""), image = image, page = lfNormalize(track.url),
-			name = (track.name:gsub("[\r\n]", " ")), artist = (tostring(performer or ""):gsub("[\r\n]", " ")), playing = playing,
-		}
-	end
-
-	local showLfArt
-	showLfArt = function(asset)
-		lfAsset = asset
-		if State.Preset ~= "Last.fm" then return end
-		if lfFading then lfQueued = asset return end
-		local outgoing = lfFront
-		local incoming = (lfFront == lfA) and lfB or lfA
-		incoming.Image = asset
-		incoming.ZIndex, outgoing.ZIndex = 1, 0
-		lfFront = incoming
-		local showing = group.Visible and group.GroupTransparency < 0.95 and outgoing.ImageTransparency < 0.95
-		if showing then
-			lfFading = true
-			incoming.ImageTransparency = 1
-			local fade = TweenService:Create(incoming, TweenInfo.new(LastfmFadeSeconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0 })
-			fade.Completed:Connect(function()
-				lfFading = false
-				outgoing.ImageTransparency = 1
-				local queued = lfQueued
-				lfQueued = nil
-				if queued and queued ~= lfFront.Image then showLfArt(queued) end
-			end)
-			fade:Play()
-		else
-			outgoing.ImageTransparency = 1
-			incoming.ImageTransparency = 0
-			token += 1
-			group.Visible = true
-			fadeTo(0, 0.35)
-		end
-	end
-
-	local function lfApply(track, session)
-		if LastfmOnlyWhenPlaying and not track.playing then return end
-		if track.key == lfKey then return end
-		local url = track.image
-		if url == "" then url = lfPageImage(track.page) end
-		if url == "" then return end
-		local asset = lfAssetFromUrl(lfProxy(url))
-		if session ~= lfSession or not asset then return end
-		lfKey = track.key
-		showLfArt(asset)
-	end
-
-	local lfRunning = false
-	local function lfNeeded()
-		return State.LastfmUser ~= "" and (State.Preset == "Last.fm" or State.Toggles.CurrentSong == true)
-	end
-	local function stopLastfm()
-		lfSession += 1
-		lfRunning = false
-	end
-	local function startLastfm()
-		lfSession += 1
-		local mine = lfSession
-		lfRunning = lfNeeded()
-		if not lfRunning then return end
-		task.spawn(function()
-			local warned = false
-			while lfSession == mine and ScreenGui.Parent do
-				local ok, track = pcall(lfReadTrack, State.LastfmUser)
-				if lfSession ~= mine then break end
-				if State.Toggles.CurrentSong and songTrackHook then pcall(songTrackHook, ok and track or nil) end
-				if ok and track then
-					if State.Preset == "Last.fm" then pcall(lfApply, track, mine) end
-				elseif not warned then
-					warned = true
-					warn("[Wave] Last.fm: couldn't read a song for that username (check the name, and that HTTP requests + writefile + getcustomasset work).")
-				end
-				task.wait(LastfmPollSeconds)
-			end
-		end)
-	end
-	restartLastfmPolling = startLastfm
-	refreshLastfmPolling = function()
-		if lfNeeded() then
-			if not lfRunning then startLastfm() end
-		elseif lfRunning then
-			stopLastfm()
-		end
-	end
-	ScreenGui.AncestryChanged:Connect(function(_, newParent)
-		if newParent then return end
-		lfSession += 1
-		if type(delfile) == "function" then
-			for _, path in ipairs(lfFiles) do pcall(delfile, path) end
-		end
-	end)
-
-	setLastfmUser = function(name)
-		name = tostring(name or "")
-		State.LastfmUser = name
-		lfKey = ""
-		if name == "" then
-			lfAsset, lfQueued = nil, nil
-			stopLastfm()
-			if songTrackHook then songTrackHook(nil) end
-			if State.Preset == "Last.fm" then
-				token += 1
-				local mine = token
-				fadeTo(1, 0.25).Completed:Connect(function(status)
-					if status == Enum.PlaybackState.Completed and mine == token then group.Visible = false end
-				end)
-			end
-		else
-			startLastfm()
-		end
-	end
-
 	setBackdropPreset = function(name)
-		if name ~= "Last.fm" and not PresetFiles[name] then name = "None" end
+		if not BackdropSet[name] then name = "None" end
 		State.Preset = name
 		buildTheme("dark")
 		buildTheme("light")
 		applyTheme(currentThemeName, true)
 		for _, sync in ipairs(choiceSyncs) do pcall(sync) end
+
 		token += 1
 		local mine = token
-		if name == "Last.fm" then startLastfm() else refreshLastfmPolling() end
-		tween(tint, 0.4, { BackgroundTransparency = name == "Last.fm" and LastfmTint or TintTransparency })
+		tween(tint, 0.4, { BackgroundTransparency = TintTransparency })
 		if name == "None" then
-			local t = fadeTo(1, 0.25)
-			t.Completed:Connect(function(status)
+			local effect = fadeTo(1, 0.25)
+			effect.Completed:Connect(function(status)
 				if status == Enum.PlaybackState.Completed and mine == token then group.Visible = false end
 			end)
 			return
 		end
-		if name == "Last.fm" then
-			task.spawn(function()
-				if group.Visible and group.GroupTransparency < 0.95 and image.Image ~= "" then
-					fadeTo(1, 0.15).Completed:Wait()
-					if mine ~= token then return end
-				end
-				image.Image = ""
-				lfA.ImageTransparency, lfB.ImageTransparency = 1, 1
-				if lfAsset and State.LastfmUser ~= "" then
-					local other = (lfFront == lfA) and lfB or lfA
-					lfFront.Image = lfAsset
-					lfFront.ZIndex, other.ZIndex = 1, 0
-					lfFront.ImageTransparency = 0
-					group.Visible = true
-					fadeTo(0, 0.35)
-				else
-					fadeTo(1, 0.2).Completed:Connect(function(status)
-						if status == Enum.PlaybackState.Completed and mine == token then group.Visible = false end
-					end)
-				end
-			end)
-			return
-		end
+
 		task.spawn(function()
 			local asset = loadAsset(name)
 			if mine ~= token then return end
@@ -856,21 +665,22 @@ do
 				fadeTo(1, 0.2)
 				return
 			end
-
 			if group.Visible and group.GroupTransparency < 0.95 and image.Image ~= asset then
 				fadeTo(1, 0.15).Completed:Wait()
 				if mine ~= token then return end
 			end
-			lfA.ImageTransparency, lfB.ImageTransparency = 1, 1
 			image.ImageTransparency = 0
 			image.Image = asset
 			group.Visible = true
 			fadeTo(0, 0.35)
 		end)
 	end
-
 end
 
+
+------------------------------------------------------------------ background blur / glass (visual only)
+-- Off by default (State.Toggles.UIBlur). Enable creates the depth-of-field effect + the two glass parts and binds
+-- the render step; Disable destroys all of it and sweeps the world for leftovers. Fix does a full off/on.
 local BlurController = (function()
 	local BlurRenderName = "Wave1.5 Blur Render"
 	local BlurEffectName = "Wave1.5 Blur"
@@ -945,7 +755,7 @@ local BlurController = (function()
 		if not obj or not obj.Parent or not obj:IsA("GuiObject") then return end
 		TweenService:Create(obj, TweenInfo.new(themeDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = transparency }):Play()
 	end
-
+	-- blur on: see-through glass. blur off: solid.
 	local function applyGlass()
 		for _, e in ipairs(themedObjects) do
 			if e.prop == "BackgroundColor3" then
@@ -1007,6 +817,7 @@ local BlurController = (function()
 		applyGlass()
 	end
 
+	-- full reset: everything off and swept, then back on if the toggle is on
 	local function Fix()
 		Disable()
 		sweepWorld()
@@ -1035,6 +846,8 @@ local BlurController = (function()
 	}
 end)()
 
+-- Background Blur only runs while no backdrop preset is active (the preset image covers the window, so the
+-- blur would be invisible); the toggle keeps its value and resumes when the preset is turned off
 local function syncBlur()
 	local want = State.Toggles.UIBlur and State.Preset == "None"
 	if want and not BlurController.IsEnabled() then
@@ -1054,6 +867,7 @@ ToggleCallbacks.UIShadow = function(on)
 	end
 end
 
+------------------------------------------------------------------ header
 local Header, syncLogoVisibility, syncBlurButton
 do
 Header = make("Frame", {
@@ -1101,138 +915,22 @@ task.spawn(function()
 	SiteLogoAsset = getSiteAsset("logo")
 	if HeaderLogoImage and HeaderLogoImage.Parent then syncLogoVisibility() end
 end)
-
+-- kept under the old name: re-tints the logo after a theme change
 syncBlurButton = function(animate) syncLogoVisibility(animate) end
 
-do
-	local SongSideMargin = 48
-	local SongScrollSpeed = 28
-	local SongHoldStart = 2
-	local SongHoldEnd = 1
-	local SongFadeTime = 0.3
-	local SongOnlyWhenPlaying = true
-	local SongAreaWidth = MainWidth - SongSideMargin * 2
-
-	local SongGroup = make("CanvasGroup", {
-		Parent = Header, Position = UDim2.fromOffset(SongSideMargin, 0), Size = UDim2.fromOffset(SongAreaWidth, HeaderHeight - 1),
-		BackgroundTransparency = 1, BorderSizePixel = 0, GroupTransparency = 1, Visible = false,
-	})
-	local SongTitle = make("TextLabel", {
-		Parent = SongGroup, Position = UDim2.fromOffset(0, 5), Size = UDim2.new(1, 0, 0, 15), BackgroundTransparency = 1,
-		Text = "", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text, TextWrapped = false,
-		TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.None,
-	})
-	registerThemed(SongTitle, "TextColor3", "Text")
-	local SongArtist = make("TextLabel", {
-		Parent = SongGroup, Position = UDim2.fromOffset(0, 20), Size = UDim2.new(1, 0, 0, 13), BackgroundTransparency = 1,
-		Text = "", Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = Theme.Text, TextWrapped = false,
-		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
-	})
-	registerThemed(SongArtist, "TextColor3", "Text")
-
-	local scrollToken, scrollTween = 0, nil
-	local function stopScroll()
-		scrollToken += 1
-		if scrollTween then scrollTween:Cancel() scrollTween = nil end
-		SongTitle.Position = UDim2.fromOffset(0, 5)
-		SongTitle.TextTransparency = 0
-	end
-	local function playTween(object, duration, style, props)
-		local t = TweenService:Create(object, TweenInfo.new(duration, style, Enum.EasingDirection.InOut), props)
-		scrollTween = t
-		t:Play()
-		t.Completed:Wait()
-	end
-
-	local function layoutTitle()
-		stopScroll()
-		local mine = scrollToken
-		local width = math.ceil(TextService:GetTextSize(SongTitle.Text, SongTitle.TextSize, SongTitle.Font, Vector2.new(10000, 50)).X) + 2
-		local distance = width - SongAreaWidth
-
-		local titleX = distance <= 0 and math.max(0, math.floor((SongAreaWidth - (width - 2)) / 2 + 0.5)) or 0
-		SongArtist.Position = UDim2.fromOffset(titleX, 20)
-		SongArtist.Size = UDim2.new(1, -titleX, 0, 13)
-		if distance <= 0 then
-			SongTitle.Size = UDim2.new(1, 0, 0, 15)
-			SongTitle.TextXAlignment = Enum.TextXAlignment.Center
-			return
-		end
-		SongTitle.Size = UDim2.fromOffset(width, 15)
-		SongTitle.TextXAlignment = Enum.TextXAlignment.Left
-		task.spawn(function()
-			while mine == scrollToken and SongGroup.Parent do
-				task.wait(SongHoldStart)
-				if mine ~= scrollToken then return end
-				playTween(SongTitle, distance / SongScrollSpeed, Enum.EasingStyle.Linear, { Position = UDim2.fromOffset(-distance, 5) })
-				if mine ~= scrollToken then return end
-				task.wait(SongHoldEnd)
-				if mine ~= scrollToken then return end
-				playTween(SongTitle, SongFadeTime, Enum.EasingStyle.Sine, { TextTransparency = 1 })
-				if mine ~= scrollToken then return end
-				SongTitle.Position = UDim2.fromOffset(0, 5)
-				playTween(SongTitle, SongFadeTime, Enum.EasingStyle.Sine, { TextTransparency = 0 })
-			end
-		end)
-	end
-
-	local songKey, songSwap, groupTween = "", 0, nil
-	local function fadeGroup(value, duration)
-		if groupTween then groupTween:Cancel() end
-		groupTween = TweenService:Create(SongGroup, TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { GroupTransparency = value })
-		groupTween:Play()
-		return groupTween
-	end
-	local function setSong(name, artistName)
-		local key = name and (name .. "\0" .. (artistName or "")) or ""
-		if key == songKey then return end
-		songKey = key
-		songSwap += 1
-		local mine = songSwap
-		if not name then
-			stopScroll()
-			fadeGroup(1, 0.25).Completed:Connect(function(status)
-				if status == Enum.PlaybackState.Completed and mine == songSwap then SongGroup.Visible = false end
-			end)
-			return
-		end
-		local function apply()
-			SongTitle.Text, SongArtist.Text = name, artistName or ""
-			layoutTitle()
-			SongGroup.Visible = true
-			fadeGroup(0, 0.3)
-		end
-		if SongGroup.Visible and SongGroup.GroupTransparency < 0.95 then
-			stopScroll()
-			task.spawn(function()
-				fadeGroup(1, 0.18).Completed:Wait()
-				if mine ~= songSwap then return end
-				apply()
-			end)
-		else
-			apply()
-		end
-	end
-	songTrackHook = function(track)
-		if track and track.name ~= "" and (track.playing or not SongOnlyWhenPlaying) then
-			setSong(track.name, track.artist)
-		else
-			setSong(nil)
-		end
-	end
-end
 end
 
+------------------------------------------------------------------ body / footer
 local Body = make("Frame", {
 	Parent = Main, Size = UDim2.new(1, 0, 1, -(HeaderHeight + BottomHeight)),
 	Position = UDim2.fromOffset(0, HeaderHeight), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
-
+-- not clipped, so the scroll bars can sit out in the side margins
 local SharedPanel = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false,
 })
-
+-- second page (settings). The bottom-left gear button swaps between the two pages.
 local SettingsPage = make("Frame", {
 	Parent = Body, Size = UDim2.fromOffset(PanelWidth, SideHeight), Position = UDim2.fromOffset(BodyPadding, 6),
 	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = false, Visible = false,
@@ -1255,7 +953,11 @@ registerThemed(BottomVersion, "TextColor3", "Text")
 
 local setSettingsPage
 do
-
+-- settings button (bottom-left): decal icon with a circle highlight on hover. It is the only way
+-- back from the settings page.
+-- Put either just the decal id (number) or the full image string, e.g.
+--   local SettingsIconAssetId = 1234567890
+--   local SettingsIconAssetId = "rbxthumb://type=Asset&id=1234567890&w=150&h=150"
 local SettingsIconAssetId = 76349806024559
 local SettingsOpen = false
 local SettingsBtn = make("TextButton", {
@@ -1278,7 +980,9 @@ elseif type(SettingsIconAssetId) == "number" and SettingsIconAssetId ~= 0 then
 		if resolved and resolved ~= "" and SettingsIcon.Parent then SettingsIcon.Image = resolved end
 	end)
 end
-
+-- delayed tick: the mouse has to rest on the icon for SettingsHoverDelay before it ticks to the right.
+-- Moving on/off quickly cancels it. Leaving the icon or clicking it ticks it back into place, and after
+-- a click it won't tick again until the mouse leaves and re-enters.
 local SettingsHoverDelay = 0.3
 local SettingsTickAngle = 25
 local settingsHoverToken = 0
@@ -1300,7 +1004,7 @@ SettingsBtn.MouseEnter:Connect(function()
 	end)
 end)
 SettingsBtn.MouseLeave:Connect(function()
-	settingsHoverToken += 1
+	settingsHoverToken += 1 -- cancels a pending tick
 	settingsClickedWhileHover = false
 	if settingsTicked then
 		settingsTicked = false
@@ -1315,7 +1019,7 @@ setSettingsPage = function(state)
 end
 SettingsBtn.MouseButton1Click:Connect(function()
 	if inputBlocked() then return end
-
+	-- click: cancel any pending tick and click back into place
 	settingsHoverToken += 1
 	settingsClickedWhileHover = true
 	if settingsTicked then
@@ -1326,84 +1030,173 @@ SettingsBtn.MouseButton1Click:Connect(function()
 end)
 end
 
-local ArrayListFrame = make("Frame", {
-	Parent = ScreenGui, Size = UDim2.fromOffset(170, 150), AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14,
-})
-local ArrayLayout = make("UIListLayout", {
-	Parent = ArrayListFrame, SortOrder = Enum.SortOrder.LayoutOrder,
-	VerticalAlignment = Enum.VerticalAlignment.Bottom, HorizontalAlignment = Enum.HorizontalAlignment.Right,
-})
+------------------------------------------------------------------ array list (shows enabled toggles)
+local ArrayListFrame
+local ArrayCornerNames
+local applyArrayPosition
 do
+local ArrayFrameWidth, ArrayFrameHeight = 240, 236
+local ArrayRowHeight, ArrayRowGap = 18, 2
+local ArrayMargin = 8
+ArrayListFrame = make("Frame", {
+	Parent = ScreenGui, Size = UDim2.fromOffset(ArrayFrameWidth, ArrayFrameHeight), AnchorPoint = Vector2.new(0, 0),
+	Position = UDim2.fromOffset(-28, 8), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 14,
+})
 local ArrayListNames = {
 	Camlock = "Camlock", Silent = "Silent Aim", Fly = "Fly", Noclip = "Noclip", Maxzoom = "Maxzoom",
 	AntiAfk = "Anti AFK", InfJump = "Inf Jump", AntiSeat = "Anti-Seat", AutoPickup = "Auto Pickup", Spinbot = "Spinbot",
 }
-local EspToggles = { "NameEsp","Tracers","Skeleton","Outlines","BoxOutline","BoxCorners","Box3D","Box3DCorners","HealthBars","Distance","ShowItems" }
+local EspToggles = { "NameEsp","Tracers","FriendEsp","Skeleton","Outlines","BoxOutline","BoxCorners","Box3D","Box3DCorners","HealthBars","Distance","ShowItems" }
+ArrayCornerNames = { "Btm Right", "Btm Left", "Top Right", "Top Left" }
+local ArrayCorners = {
+	["Btm Right"] = { left = false, top = false, bottom = true },
+	["Btm Left"] = { left = true, top = false, bottom = true },
+	["Top Right"] = { left = false, top = true, bottom = false },
+	["Top Left"] = { left = true, top = true, bottom = false },
+}
+local arrayLabelActive = {}
+local arrayLabelTweens = {}
+local arrayPositionTween
+local function arrayLabelWidth(name)
+	local measured = TextService:GetTextSize(name, 13, Enum.Font.GothamMedium, Vector2.new(1000, ArrayRowHeight))
+	return math.ceil(measured.X) + 10
+end
+local function tweenArrayLabel(label, properties, duration, onComplete)
+	local old = arrayLabelTweens[label]
+	if old then pcall(function() old:Cancel() end) end
+	local effect = TweenService:Create(label, TweenInfo.new(duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), properties)
+	arrayLabelTweens[label] = effect
+	effect.Completed:Connect(function(status)
+		if arrayLabelTweens[label] == effect then
+			arrayLabelTweens[label] = nil
+			if status == Enum.PlaybackState.Completed and onComplete then onComplete() end
+		end
+	end)
+	effect:Play()
+	return effect
+end
 local function arrayListItems()
-	local a = {}
-	for _, k in ipairs({"Camlock","Silent"}) do if State.Toggles[k] then a[#a+1] = ArrayListNames[k] end end
-	for _, k in ipairs(EspToggles) do if State.Toggles[k] then a[#a+1] = "ESP" break end end
-	for _, k in ipairs({"Fly","Noclip","Maxzoom","AntiAfk","InfJump","AntiSeat","Spinbot"}) do
-		if State.Toggles[k] then a[#a+1] = ArrayListNames[k] end
+	local items = {}
+	for _, key in ipairs({ "Camlock", "Silent" }) do
+		if State.Toggles[key] then items[#items + 1] = { key = key, name = ArrayListNames[key] } end
 	end
-	return a
+	for _, key in ipairs(EspToggles) do
+		if State.Toggles[key] then items[#items + 1] = { key = "ESP", name = "ESP" } break end
+	end
+	for _, key in ipairs({ "Fly", "Noclip", "Maxzoom", "AntiAfk", "InfJump", "AntiSeat", "AutoPickup", "Spinbot" }) do
+		if State.Toggles[key] then items[#items + 1] = { key = key, name = ArrayListNames[key] } end
+	end
+	table.sort(items, function(a, b)
+		local widthA, widthB = arrayLabelWidth(a.name), arrayLabelWidth(b.name)
+		if widthA == widthB then return a.name < b.name end
+		return widthA < widthB
+	end)
+	return items
 end
 refreshArrayList = function()
 	local items = arrayListItems()
-	for index, name in ipairs(items) do
-		local label = arrayListLabels[index]
+	local active = {}
+	local corner = ArrayCorners[State.ArrayPosition] or ArrayCorners["Btm Left"]
+	local totalHeight = #items * ArrayRowHeight + math.max(0, #items - 1) * ArrayRowGap
+	local firstY = corner.bottom and math.max(0, ArrayFrameHeight - totalHeight) or 0
+	for index, item in ipairs(items) do
+		active[item.key] = true
+		local label = arrayListLabels[item.key]
+		local width = arrayLabelWidth(item.name)
+		local targetX = corner.left and 0 or ArrayFrameWidth - width
+		local targetY = firstY + (index - 1) * (ArrayRowHeight + ArrayRowGap)
 		if not label then
 			label = make("TextLabel", {
-				Parent = ArrayListFrame, Size = UDim2.fromOffset(0, 15), AutomaticSize = Enum.AutomaticSize.X,
-				BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.22, BorderSizePixel = 0,
-				TextColor3 = Theme.Text, TextSize = 12, Font = Enum.Font.GothamMedium,
+				Parent = ArrayListFrame, Size = UDim2.fromOffset(0, 0), Position = UDim2.fromOffset(corner.left and -14 or ArrayFrameWidth + 14, targetY + 4),
+				BackgroundColor3 = Theme.Background, BackgroundTransparency = 1, BorderSizePixel = 0,
+				Text = item.name, TextColor3 = Theme.Text, TextTransparency = 1, TextSize = 13, Font = Enum.Font.GothamMedium,
 				TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 14,
 			})
-			local stroke = make("UIStroke", { Parent = label, Color = Theme.Border, Thickness = 1, Transparency = 0.42 })
+			local stroke = make("UIStroke", { Parent = label, Color = Theme.Border, Thickness = 1.1, Transparency = 0.28 })
 			registerThemed(stroke, "Color", "Border")
-			make("UIPadding", { Parent = label, PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4) })
-			arrayListLabels[index] = label
+			registerThemed(label, "BackgroundColor3", "Background")
+			registerThemed(label, "TextColor3", "Text")
+			make("UIPadding", { Parent = label, PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5) })
+			arrayListLabels[item.key] = label
 		end
-		label.Text = name
-		label.LayoutOrder = index
-		label.Size = UDim2.fromOffset(0, 15)
-		label.AutomaticSize = Enum.AutomaticSize.X
-		label.Visible = true
+		if label.Text ~= item.name then
+			label.TextTransparency = 1
+			label.Text = item.name
+		end
+		if not arrayLabelActive[item.key] then
+			label.Visible = true
+			label.Position = UDim2.fromOffset(corner.left and -14 or ArrayFrameWidth + 14, targetY + 4)
+			label.Size = UDim2.fromOffset(0, ArrayRowHeight)
+			label.BackgroundTransparency = 1
+			label.TextTransparency = 1
+		end
+		arrayLabelActive[item.key] = true
+		tweenArrayLabel(label, {
+			Position = UDim2.fromOffset(targetX, targetY),
+			Size = UDim2.fromOffset(width, ArrayRowHeight),
+			BackgroundTransparency = 0.18,
+			TextTransparency = 0,
+		}, 0.24)
 	end
-	for index = #items + 1, #arrayListLabels do
-		local label = arrayListLabels[index]
-		label.Visible = false
-		label.Size = UDim2.fromOffset(0, 0)
-		label.AutomaticSize = Enum.AutomaticSize.None
+	for key, label in pairs(arrayListLabels) do
+		if not active[key] and arrayLabelActive[key] then
+			arrayLabelActive[key] = false
+			local exitX = corner.left and -16 or ArrayFrameWidth + 16
+			tweenArrayLabel(label, {
+				Position = UDim2.fromOffset(exitX, label.Position.Y.Offset + 3),
+				Size = UDim2.fromOffset(0, 0),
+				BackgroundTransparency = 1,
+				TextTransparency = 1,
+			}, 0.17, function()
+				if not arrayLabelActive[key] then label.Visible = false end
+			end)
+		end
 	end
 end
 refreshArrayList()
+applyArrayPosition = function()
+	local corner = ArrayCorners[State.ArrayPosition] or ArrayCorners["Btm Left"]
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+	local x = corner.left and ArrayMargin or math.max(ArrayMargin, viewport.X - ArrayFrameWidth - ArrayMargin)
+	local y = corner.top and ArrayMargin or math.max(ArrayMargin, viewport.Y - ArrayFrameHeight - ArrayMargin)
+	if arrayPositionTween then pcall(function() arrayPositionTween:Cancel() end) end
+	arrayPositionTween = TweenService:Create(ArrayListFrame, TweenInfo.new(0.34, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Position = UDim2.fromOffset(x, y),
+	})
+	arrayPositionTween:Play()
+	if refreshArrayList then refreshArrayList() end
 end
-
-local ArrayCornerNames = { "Btm Right", "Btm Left", "Top Right", "Top Left" }
-local ArrayCorners = {
-	["Btm Right"] = { anchor = Vector2.new(1, 1), pos = UDim2.new(1, 0, 1, 0), v = Enum.VerticalAlignment.Bottom, h = Enum.HorizontalAlignment.Right },
-	["Btm Left"]  = { anchor = Vector2.new(0, 1), pos = UDim2.new(0, 0, 1, 0), v = Enum.VerticalAlignment.Bottom, h = Enum.HorizontalAlignment.Left },
-	["Top Right"] = { anchor = Vector2.new(1, 0), pos = UDim2.new(1, 0, 0, 0), v = Enum.VerticalAlignment.Top,    h = Enum.HorizontalAlignment.Right },
-	["Top Left"]  = { anchor = Vector2.new(0, 0), pos = UDim2.new(0, 0, 0, 0), v = Enum.VerticalAlignment.Top,    h = Enum.HorizontalAlignment.Left },
-}
-local function applyArrayPosition()
-	local c = ArrayCorners[State.ArrayPosition] or ArrayCorners["Btm Right"]
-	ArrayListFrame.AnchorPoint = c.anchor
-	ArrayListFrame.Position = c.pos
-	ArrayLayout.VerticalAlignment = c.v
-	ArrayLayout.HorizontalAlignment = c.h
+local arrayViewportConnection
+local function bindArrayViewport()
+	if arrayViewportConnection then
+		arrayViewportConnection:Disconnect()
+		arrayViewportConnection = nil
+	end
+	local camera = workspace.CurrentCamera
+	if camera then
+		arrayViewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(applyArrayPosition)
+		table.insert(Connections, arrayViewportConnection)
+	end
 end
+bindArrayViewport()
+table.insert(Connections, workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	bindArrayViewport()
+	applyArrayPosition()
+end))
 ToggleCallbacks.ArrayList = function(on)
 	ArrayListFrame.Visible = on
+	if on then refreshArrayList() end
+end
 end
 
+------------------------------------------------------------------ columns
 local ColumnGap, ColumnPadding = 8, 7
 local AvailableColumnWidth = PanelWidth - ColumnPadding * 2 - ColumnGap
 local LeftColumnWidth = math.floor(AvailableColumnWidth * 0.5)
 local RightColumnWidth = AvailableColumnWidth - LeftColumnWidth
 
+-- how far the scroll bars sit out into the side margins (px). 9 ≈ centered between the content and the UI edge.
 local ScrollOut = 9
 
 local function makeSimpleColumn(xOffset, width, side)
@@ -1448,7 +1241,9 @@ local function makeControlLabel(parent, text, xOffset, rightReserve, fixedTextCo
 	if not fixedTextColor then registerThemed(lbl, "TextColor3", "Text") end
 	return lbl
 end
-
+------------------------------------------------------------------ toggle switch (animation only)
+-- returns track, activate, rebind(newStateName). rebind points the switch at another state key and
+-- slides it to that key's value.
 local function makeToggleSwitch(parent, initialStateName)
 	local stateName = initialStateName
 	local KnobSize, Pad = 7, 4
@@ -1523,8 +1318,9 @@ local function makeToggleSwitch(parent, initialStateName)
 	return track, activateToggle, rebind
 end
 
+------------------------------------------------------------------ keybind box
 local waitingForKey = nil
-
+-- returns Box, rebind(newStateName)
 local function makeKeybindBox(parent, initialStateName, opts)
 	opts = opts or {}
 	local stateName = initialStateName
@@ -1542,7 +1338,7 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	registerThemed(ClearBind, "TextColor3", "Text")
 	registerThemed(ClearBind, "BackgroundColor3", "Highlight")
 	make("UICorner", { Parent = ClearBind, CornerRadius = UDim.new(1, 0) })
-
+	-- only show the X when a key is actually bound
 	local function syncClear()
 		ClearBind.Visible = not opts.NoClear and Box.Text ~= "Set" and Box.Text ~= ""
 	end
@@ -1560,7 +1356,7 @@ local function makeKeybindBox(parent, initialStateName, opts)
 		if opts.OnChange then pcall(opts.OnChange) end
 	end)
 	table.insert(themedKeybinds, Box)
-
+	-- used by config load / reset to refresh the shown key
 	table.insert(keybindSyncs, function()
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
 		Box.Text = shortKeyName(State.Keybinds[stateName])
@@ -1568,13 +1364,13 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	Box.MouseEnter:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.CheckboxHover }) end)
 	Box.MouseLeave:Connect(function() tween(Box, 0.08, { BackgroundColor3 = Theme.Checkbox }) end)
 	Box.MouseButton1Click:Connect(function()
-
+		-- the click that just finished binding a mouse button must not restart the capture
 		if inputBlocked() then return end
 		if waitingForKey and waitingForKey.Box ~= Box then
 			waitingForKey.Box.Text = shortKeyName(State.Keybinds[waitingForKey.Name])
 		end
 		waitingForKey = { Name = stateName, Box = Box, Opts = opts }
-		Box.Text = ""
+		Box.Text = "" -- empty box while waiting for a key / mouse button (Esc cancels)
 	end)
 	local function rebind(newStateName)
 		if waitingForKey and waitingForKey.Box == Box then waitingForKey = nil end
@@ -1584,9 +1380,10 @@ local function makeKeybindBox(parent, initialStateName, opts)
 	return Box, rebind
 end
 
+------------------------------------------------------------------ slider
 local activeSlider = nil
 local SliderTrackHeight = 5
-
+-- returns Track, ValueLabel, rebind(newSliderName). rebind slides the fill/value to the new slider's value.
 local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, width)
 	local sliderName = initialSliderName
 	local sliderWidth, trackX, trackY = width or 42, xOffset or 0, yOffset or 0
@@ -1601,7 +1398,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = Track, Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.SliderFill, BorderSizePixel = 0,
 	})
 	make("UICorner", { Parent = Fill, CornerRadius = UDim.new(1, 0) })
-
+	-- square cap squares off the fill's right edge so only the track ends are rounded
 	local Cap = make("Frame", {
 		Parent = Track, Size = UDim2.fromOffset(0, SliderTrackHeight), BackgroundColor3 = Theme.SliderFill,
 		BorderSizePixel = 0, Visible = false,
@@ -1627,6 +1424,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	Track:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
 	layout()
 
+	-- drives the smooth slide when the slider is pointed at a different value
 	local driver = Instance.new("NumberValue")
 	driver.Value = alpha
 	driver.Parent = Track
@@ -1636,7 +1434,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		ValueLabel.Text = formatValue(sliderName, alphaToValue(sliderName, v))
 		layout()
 	end)
-
+	-- jumps straight to the current State value (config load / reset)
 	sliderEntry.sync = function()
 		if driverTween then driverTween:Cancel() driverTween = nil end
 		local target = valueToAlpha(sliderName, State.Sliders[sliderName])
@@ -1658,7 +1456,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 		Parent = parent, Size = UDim2.fromOffset(sliderWidth + 12, 18), Position = UDim2.fromOffset(trackX - 6, trackY - 6),
 		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 4,
 	})
-
+	-- keep the tall hit area as wide as the (stretching) track
 	local function syncGrab()
 		GrabArea.Size = UDim2.fromOffset(math.max(Track.AbsoluteSize.X, sliderWidth) + 12, 18)
 	end
@@ -1692,6 +1490,7 @@ local function makeSliderControl(parent, initialSliderName, xOffset, yOffset, wi
 	return Track, ValueLabel, rebind
 end
 
+------------------------------------------------------------------ dropdowns (overlay popup)
 local AimPartLabels = { "Root", "Head", "Upper Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
 local AimPartValues = {
 	Root="HumanoidRootPart", Head="Head", ["Upper Torso"]="UpperTorso", ["Left Arm"]="LeftArm", ["Right Arm"]="RightArm",
@@ -1706,6 +1505,15 @@ local AimPartAliases = {
 	LeftArm={"LeftUpperArm","LeftLowerArm","LeftHand","Left Arm"}, RightArm={"RightUpperArm","RightLowerArm","RightHand","Right Arm"},
 	LeftLeg={"LeftUpperLeg","LeftLowerLeg","LeftFoot","Left Leg"}, RightLeg={"RightUpperLeg","RightLowerLeg","RightFoot","Right Leg"},
 }
+-- short names shown in the dropdown; State.SilentMethod keeps the full names
+local SilentMethodLabels = { "Raycast", "FPOR", "FPORWWL", "FPORWIL", "Mouse" }
+local SilentMethodValues = {
+	Raycast = "Raycast", FPOR = "FindPartOnRay", FPORWWL = "FindPartOnRayWithWhitelist",
+	FPORWIL = "FindPartOnRayWithIgnoreList", Mouse = "Mouse.Hit/Target",
+}
+local SilentMethodDisplay = {}
+for short, full in pairs(SilentMethodValues) do SilentMethodDisplay[full] = short end
+
 local ChevronAssetId = 79521530937277
 local ChevronImage = "rbxthumb://type=Asset&id=" .. ChevronAssetId .. "&w=150&h=150"
 local chevronLabels = {}
@@ -1719,6 +1527,7 @@ task.spawn(function()
 	end
 end)
 
+------------------------------------------------------------------ rows / sections
 local function makeSimpleRowBase(parent, height)
 	return make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, height or RowHeight), BackgroundTransparency = 1, BorderSizePixel = 0 })
 end
@@ -1738,6 +1547,8 @@ local function hookHover(row, hover, amount)
 	row.MouseLeave:Connect(function() tween(hover, 0.08, { BackgroundTransparency = 1 }) end)
 end
 
+-- bottomGap (optional): extra space under the section that scales with how open it is, so a closed
+-- section sits at the normal SectionGap and an open one keeps the extra gap.
 local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local open = startOpen and true or false
 	local headerHeight = 24
@@ -1803,7 +1614,7 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	local bodyLayout = make("UIListLayout", {
 		Parent = body, Padding = UDim.new(0, RowGap), SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-
+	-- openness (0 closed .. 1 open) is animated; heights are always derived from it
 	local openness = Instance.new("NumberValue")
 	openness.Value = open and 1 or 0
 	openness.Parent = header
@@ -1842,6 +1653,7 @@ local function makeSimpleSection(parent, title, startOpen, bottomGap)
 	return body, wrapper
 end
 
+-- returns row, rebind(newStateName)
 local function makeSimpleToggleRow(parent, textValue, stateName)
 	local disabled = TemporarilyDisabledToggles[stateName] == true
 	if disabled then State.Toggles[stateName] = false end
@@ -1856,14 +1668,14 @@ local function makeSimpleToggleRow(parent, textValue, stateName)
 	row.MouseButton1Click:Connect(activateToggle)
 	return row, rebind
 end
-
+-- returns row, rebind(newStateName)
 local function makeSimpleKeybindRow(parent, textValue, stateName, opts)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	makeControlLabel(row, textValue, 8, 42)
 	local _, rebind = makeKeybindBox(row, stateName, opts)
 	return row, rebind
 end
-
+-- returns row, rebind(newSliderName)
 local function makeSimpleSliderRow(parent, textValue, sliderName)
 	local row = makeSimpleRowBase(parent, SliderRowHeight)
 	local labelX = 8
@@ -1885,6 +1697,11 @@ local function makeSimpleSliderRow(parent, textValue, sliderName)
 	return row, rebind
 end
 
+-- Dropdown row: the row never changes size. The option list is a floating popup parented to Main
+-- (above everything), so it overlays whatever is below the dropdown instead of pushing it
+-- down, and it can't be clipped by the section / scroll frames. Every dropdown uses DropdownWidth.
+-- Lists longer than MaxDropdownOptions scroll. Returns row, nil, rebuild(newOptions): rebuild swaps the option list
+-- (used by the config dropdown, whose list changes) and refreshes the shown value.
 local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValue)
 	local collapsedH = DropdownHeaderHeight
 	local expandedH = math.min(#options, MaxDropdownOptions) * DropdownOptionHeight
@@ -1920,12 +1737,13 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	})
 	registerThemed(chevron, "ImageColor3", "Chevron")
 	table.insert(chevronLabels, chevron)
-
+	-- config load / reset refreshes the shown value through this
 	table.insert(choiceSyncs, function() selectedLabel.Text = getValue() end)
 
 	header.MouseEnter:Connect(function() tween(header, 0.1, { BackgroundTransparency = 0.88 }) end)
 	header.MouseLeave:Connect(function() tween(header, 0.1, { BackgroundTransparency = 1 }) end)
 
+	-- floating option list
 	local popup = make("ScrollingFrame", {
 		Parent = Main, Size = UDim2.fromOffset(DropdownWidth, 0), Position = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = Theme.Checkbox, BackgroundTransparency = 0.04, BorderSizePixel = 0,
@@ -1939,6 +1757,8 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	registerThemed(popup, "BackgroundColor3", "Checkbox")
 	registerThemed(popup, "ScrollBarImageColor3", "Scroll")
 
+	-- hover tracking: used instead of mouse coordinates for "click outside" (coordinates are off by the
+	-- Roblox top bar inset, which is what made the dropdown reopen itself)
 	local hovered = {}
 	local function trackHover(obj, isPopupPart)
 		obj.MouseEnter:Connect(function()
@@ -2004,12 +1824,15 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		end
 	end
 
+	-- progress 0 (collapsed) .. 1 (expanded) drives only the popup height
 	local progress = Instance.new("NumberValue")
 	progress.Parent = shell
 	progress.Changed:Connect(function(p)
 		popup.Size = UDim2.fromOffset(DropdownWidth, math.floor(expandedH * p + 0.5))
 	end)
 
+	-- popup is a child of Main, so its position is the header's position relative to Main
+	-- (both use the same coordinate space, so the top bar inset cancels out)
 	local function syncPopup()
 		local p, m = shell.AbsolutePosition, Main.AbsolutePosition
 		popup.Position = UDim2.fromOffset(p.X - m.X, p.Y - m.Y + collapsedH)
@@ -2023,7 +1846,7 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 		if outsideConn then outsideConn:Disconnect() outsideConn = nil end
 		if followConn then followConn:Disconnect() followConn = nil end
 		if state then
-			closeDropdown()
+			closeDropdown() -- close any other open dropdown first
 			myClose = function() setOpen(false) end
 			activeDropdownClose = myClose
 			for index, option in ipairs(optionButtons) do
@@ -2032,14 +1855,15 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 			popup.CanvasPosition = Vector2.new(0, 0)
 			syncPopup()
 			popup.Visible = true
-
+			-- clicking anywhere that is not this dropdown's header or list closes it.
+			-- The header handles its own click (toggle), so it is excluded here to avoid close/reopen loops.
 			outsideConn = UserInputService.InputBegan:Connect(function(input)
 				if input.KeyCode == Enum.KeyCode.Escape then setOpen(false) return end
 				if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 				if isHovering() then return end
 				setOpen(false)
 			end)
-
+			-- keep the popup glued to the header (scrolling, section collapsing, window dragging)
 			followConn = RunService.RenderStepped:Connect(function()
 				if not shell.Parent or not Main.Visible then setOpen(false) return end
 				local pp, ps = SharedPanel.AbsolutePosition, SharedPanel.AbsoluteSize
@@ -2085,6 +1909,9 @@ local function makeSimpleChoiceRow(parent, textValue, options, getValue, setValu
 	return row, nil, rebuild
 end
 
+-- "<  Value  >" selector row: arrows cycle through the options (wraps around).
+-- The value text slides in the direction of the arrow that was clicked:
+-- "<" slides the text to the left, ">" slides it to the right.
 local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local ArrowSize, ValueWidth, Margin = 16, 66, 5
@@ -2129,7 +1956,8 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 		index = ((index - 1 + direction) % #options) + 1
 		setValue(options[index])
 		local outgoing, outgoingEntry = current, currentEntry
-
+		-- direction -1 (left arrow): old text leaves to the left, new text enters from the right
+		-- direction  1 (right arrow): old text leaves to the right, new text enters from the left
 		current, currentEntry = makeValueLabel(getValue(), -direction * ValueWidth)
 		local info = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 		TweenService:Create(current, info, { Position = UDim2.fromOffset(0, 0) }):Play()
@@ -2147,6 +1975,7 @@ local function makeSimpleCycleRow(parent, textValue, options, getValue, setValue
 	return row
 end
 
+-- Text box row (full width). Returns row, textBox. Only letters, digits, space, - and _ are kept, max 24 chars.
 local function makeSimpleTextBoxRow(parent, placeholder)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local box = make("TextBox", {
@@ -2167,6 +1996,8 @@ local function makeSimpleTextBoxRow(parent, placeholder)
 	return row, box
 end
 
+-- Button row: buttons = { {"Label", callback}, ... } shown side by side. If the callback returns a string it is
+-- flashed on the button for a second (e.g. "Saved").
 local function makeSimpleButtonRow(parent, buttons)
 	local row = makeSimpleRowBase(parent, RowHeight)
 	local holder = make("Frame", {
@@ -2208,6 +2039,8 @@ local function makeSimpleButtonRow(parent, buttons)
 	return row
 end
 
+-- Wrapper whose row slides open / closed whenever shouldShow() changes; it is re-checked on every choiceSync
+-- (dropdown / preset / theme changes). Hidden wrappers are invisible so the list layout leaves no gap.
 local function makeRevealWrapper(parent, height, shouldShow)
 	local open = shouldShow() and true or false
 	local wrapper = make("Frame", {
@@ -2236,75 +2069,10 @@ local function makeRevealWrapper(parent, height, shouldShow)
 	return wrapper
 end
 
-local function makeSimpleUsernameRow(parent, getUser, onSubmit)
-	local row = makeSimpleRowBase(parent, RowHeight)
-	local hasUser = getUser() ~= ""
-	local function xFor(saved) return saved and 28 or 8 end
-
-	local clear = make("TextButton", {
-		Parent = row, Size = UDim2.fromOffset(16, 16), AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 6, 0.5, 0), BackgroundColor3 = Theme.Highlight, BackgroundTransparency = 1,
-		BorderSizePixel = 0, Text = "X", TextColor3 = Theme.Text, TextSize = 12, Font = Enum.Font.GothamMedium,
-		AutoButtonColor = false, Visible = hasUser,
-	})
-	registerThemed(clear, "TextColor3", "Text")
-	registerThemed(clear, "BackgroundColor3", "Highlight")
-	make("UICorner", { Parent = clear, CornerRadius = UDim.new(1, 0) })
-	clear.MouseEnter:Connect(function() tween(clear, 0.1, { BackgroundTransparency = 0.82 }) end)
-	clear.MouseLeave:Connect(function() tween(clear, 0.1, { BackgroundTransparency = 1 }) end)
-
-	local line = make("Frame", {
-		Parent = row, Position = UDim2.fromOffset(xFor(hasUser), 19), Size = UDim2.new(1, -(xFor(hasUser) + 10), 0, 1),
-		BackgroundColor3 = Theme.Rule, BackgroundTransparency = 0.35, BorderSizePixel = 0,
-	})
-	registerThemed(line, "BackgroundColor3", "Rule")
-	local box = make("TextBox", {
-		Parent = row, Position = UDim2.fromOffset(xFor(hasUser), 2), Size = UDim2.new(1, -(xFor(hasUser) + 10), 0, 16),
-		BackgroundTransparency = 1, BorderSizePixel = 0, Text = getUser(), PlaceholderText = "Username",
-		PlaceholderColor3 = Theme.Subtext, TextColor3 = Theme.Text, TextSize = 10, Font = Enum.Font.GothamMedium,
-		TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, ClipsDescendants = true,
-	})
-	registerThemed(box, "TextColor3", "Text")
-	registerThemed(box, "PlaceholderColor3", "Subtext")
-
-	local function place(saved)
-		local x = xFor(saved)
-		clear.Visible = saved
-		tween(box, 0.15, { Position = UDim2.fromOffset(x, 2), Size = UDim2.new(1, -(x + 10), 0, 16) })
-		tween(line, 0.15, { Position = UDim2.fromOffset(x, 19), Size = UDim2.new(1, -(x + 10), 0, 1) })
-	end
-	local function refresh()
-		if box:IsFocused() then return end
-		box.Text = getUser()
-		place(getUser() ~= "")
-	end
-	table.insert(choiceSyncs, refresh)
-
-	box:GetPropertyChangedSignal("Text"):Connect(function()
-		local cleaned = box.Text:gsub("[^%w_%-]", ""):sub(1, 15)
-		if cleaned ~= box.Text then box.Text = cleaned end
-	end)
-	box.Focused:Connect(function() tween(line, 0.1, { BackgroundTransparency = 0 }) end)
-	box.FocusLost:Connect(function(enterPressed)
-		tween(line, 0.1, { BackgroundTransparency = 0.35 })
-		local text = box.Text
-		if enterPressed and text ~= "" and text ~= getUser() then onSubmit(text) end
-		box.Text = getUser()
-		place(getUser() ~= "")
-	end)
-	clear.MouseButton1Click:Connect(function()
-		if inputBlocked() then return end
-		onSubmit("")
-		box.Text = ""
-		place(false)
-	end)
-	return row, refresh
-end
-
-local setCombatType, tpSpeedRow
-
+local setCombatType, tpSpeedRow -- used by the settings page (config load)
+------------------------------------------------------------------ menu layout
 do
-
+-- LEFT COLUMN
 local CombatRoot = makeSimpleSection(LeftContent, "Combat", true)
 State.CombatType = "Camlock"
 
@@ -2316,6 +2084,11 @@ makeSimpleCycleRow(CombatRoot, "Type", { "Camlock", "Silent Aim" },
 		if setCombatType then setCombatType(v) end
 	end)
 
+-- Camlock and Silent Aim share the same rows (Toggle, Keybind, Prediction, Show Fov, Fov).
+-- Switching Type only re-points those rows at the other mode's settings (the sliders and toggles slide
+-- to the new values). Only the rows that exist in one mode are added/removed with a height animation:
+--   Smoothness is Camlock only, Method is Silent Aim only.
+-- Each item's wrapper carries its own RowGap, so the block never leaves a stray gap when an item is hidden.
 local CombatBlock = make("Frame", {
 	Parent = CombatRoot, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
 })
@@ -2357,6 +2130,12 @@ local ctPrediction = addCombatItem(function(p) return makeSimpleSliderRow(p, "Pr
 local ctSmoothness = addCombatItem(function(p) return makeSimpleSliderRow(p, "Smoothness", "Smoothness") end, true)
 local ctShowFov    = addCombatItem(function(p) return makeSimpleToggleRow(p, "Show Fov", "FovCircle") end, true)
 local ctFov        = addCombatItem(function(p) return makeSimpleSliderRow(p, "Fov", "FovRadius") end, true)
+local ctMethod     = addCombatItem(function(p)
+	return makeSimpleChoiceRow(p, "Method", SilentMethodLabels,
+		function() return SilentMethodDisplay[State.SilentMethod] or "Raycast" end,
+		function(name) State.SilentMethod = SilentMethodValues[name] or "Raycast" end)
+end, false)
+
 setCombatType = function(v)
 	local cam = v == "Camlock"
 	ctToggle.Rebind(cam and "Camlock" or "Silent")
@@ -2365,18 +2144,22 @@ setCombatType = function(v)
 	ctShowFov.Rebind(cam and "FovCircle" or "SilentFovCircle")
 	ctFov.Rebind(cam and "FovRadius" or "SilentFovRadius")
 	ctSmoothness.SetOpen(cam)
+	ctMethod.SetOpen(not cam)
 end
 
 makeSimpleChoiceRow(CombatRoot, "Aim Part", AimPartLabels,
 	function() return AimPartDisplay[State.AimPart] or "Upper Torso" end,
 	function(name) State.AimPart = AimPartValues[name] or "HumanoidRootPart" end)
 makeSimpleToggleRow(CombatRoot, "Adaptive Aim", "AdaptiveAim")
+makeSimpleToggleRow(CombatRoot, "Sticky Aim", "StickyAim")
 makeSimpleToggleRow(CombatRoot, "Team Check", "TeamCheck")
+makeSimpleToggleRow(CombatRoot, "Friend Check", "FriendCheck")
 makeSimpleToggleRow(CombatRoot, "Wall Check", "WallCheck")
 makeSimpleToggleRow(CombatRoot, "Dead Check", "DeadCheck")
-makeSimpleToggleRow(CombatRoot, "Sticky Aim", "StickyAim")
 makeSimpleToggleRow(CombatRoot, "Target UI", "TargetUI")
 
+-- a block of rows where individual rows can slide open / closed without leaving a stray gap (same idea as the
+-- combat block above): each item's wrapper carries its own RowGap, the block subtracts the last one
 local function makeAnimatedBlock(parent)
 	local block = make("Frame", { Parent = parent, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0 })
 	local layout = make("UIListLayout", { Parent = block, Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder })
@@ -2433,6 +2216,7 @@ makeSimpleToggleRow(WorldSection, "No Fog", "NoFog")
 makeSimpleToggleRow(WorldSection, "Disable Shadows", "DisableShadows")
 makeSimpleToggleRow(WorldSection, "Remove Textures", "LowGfx")
 
+-- RIGHT COLUMN
 local EspRoot = makeSimpleSection(RightContent, "Esp", true, EspBottomGap)
 makeSimpleChoiceRow(EspRoot, "Update rate", { "Auto", "60", "120", "144", "160", "180", "200", "240" },
 	function() return State.EspUpdateRate end,
@@ -2445,13 +2229,13 @@ makeSimpleToggleRow(EspRoot, "Distance", "Distance")
 makeSimpleToggleRow(EspRoot, "Item", "ShowItems")
 local BoxEspSection = makeSimpleSection(EspRoot, "Box Esp", false)
 makeSimpleToggleRow(BoxEspSection, "2D Box", "BoxOutline")
-makeSimpleToggleRow(BoxEspSection, "Corners", "BoxCorners")
+makeSimpleToggleRow(BoxEspSection, "2D Corners", "BoxCorners")
 makeSimpleToggleRow(BoxEspSection, "3D Box", "Box3D")
 makeSimpleToggleRow(BoxEspSection, "3D Corners", "Box3DCorners")
 makeSimpleToggleRow(BoxEspSection, "Healthbar", "HealthBars")
 local IndicatorsSection = makeSimpleSection(EspRoot, "Indicators", false)
 makeSimpleToggleRow(IndicatorsSection, "Friend Indicator", "FriendEsp")
-makeSimpleToggleRow(IndicatorsSection, "Team Indicator", "TeamIndicator")
+makeSimpleToggleRow(IndicatorsSection, "Team Check", "EspTeamCheck")
 
 local PlayerSection = makeSimpleSection(RightContent, "Player", true)
 makeSimpleToggleRow(PlayerSection, "Noclip", "Noclip")
@@ -2466,9 +2250,12 @@ makeSimpleToggleRow(MiscSection, "Auto Pickup", "AutoPickup")
 end
 
 local setThemePreset
-
+------------------------------------------------------------------ settings page
 do
-
+-- Same layout as the main page (two columns, rows going down), but ONE scroll for the whole page
+-- instead of a scroll per column. The gear button in the bottom-left is the only way back.
+-- LEFT:  Appearance (backdrop preset, theme preset, UI Blur, UI Shadow)
+-- RIGHT: Config (name box, saved list, Save / Delete / Cancel, Auto Load Last), then Misc
 local SettingsScroll = make("ScrollingFrame", {
 	Parent = SettingsPage, Size = UDim2.new(1, ScrollOut, 1, 0), Position = UDim2.fromOffset(0, 0),
 	BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.fromOffset(0, 0),
@@ -2499,19 +2286,21 @@ SettingsLeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncS
 SettingsRightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncSettingsCanvas)
 syncSettingsCanvas()
 
+-- ---- theme preset
 setThemePreset = function(name)
 	if not PresetSet[name] then name = "None" end
 	State.Theme = name
-
+	-- picking a theme turns the backdrop preset off (a preset and a theme can't both be active; Light also can't sit on an image)
 	if name ~= "None" and State.Preset ~= "None" and setBackdropPreset then setBackdropPreset("None") end
 	buildTheme("dark")
 	buildTheme("light")
 	applyTheme(name == "Light" and "light" or "dark", true)
 	BlurController.RefreshGlass()
-	syncBlurButton(true)
-	for _, sync in ipairs(choiceSyncs) do pcall(sync) end
+	syncBlurButton(true) -- re-tints the wave logo
+	for _, sync in ipairs(choiceSyncs) do pcall(sync) end -- refresh the Theme / Presets dropdown labels
 end
 
+-- ---- config backend intentionally disconnected in this test build
 local ConfigNames = { "Not ready" }
 local ActiveConfig = nil
 local ConfigNameBox
@@ -2540,37 +2329,24 @@ local function unloadUI()
 	pcall(function() ScreenGui:Destroy() end)
 end
 
-ToggleCallbacks.CurrentSong = function(on)
-	for _, sync in ipairs(choiceSyncs) do pcall(sync) end
-	if on then
-		restartLastfmPolling()
-	else
-		if songTrackHook then songTrackHook(nil) end
-		refreshLastfmPolling()
-	end
-end
-
+-- ---- layout
+-- LEFT COLUMN
 local AppearanceSection = makeSimpleSection(SettingsLeft, "Appearance", true)
-makeSimpleChoiceRow(AppearanceSection, "Presets", { "None", "Daydream", "Last.fm" },
+makeSimpleChoiceRow(AppearanceSection, "Presets", { "None", "Daydream" },
 	function() return State.Preset end,
 	function(v)
-
+		-- picking a preset turns the theme off
 		if v ~= "None" and State.Theme ~= "None" then setThemePreset("None") end
 		setBackdropPreset(v)
 	end)
-
-makeSimpleUsernameRow(
-	makeRevealWrapper(AppearanceSection, RowHeight, function() return State.Preset == "Last.fm" or State.Toggles.CurrentSong == true end),
-	function() return State.LastfmUser end,
-	function(name) setLastfmUser(name) end)
 makeSimpleChoiceRow(AppearanceSection, "Theme", PresetNames,
 	function() return State.Theme end,
 	function(v) setThemePreset(v) end)
-
+-- Background Blur is only shown while no preset is active (a preset image covers the window, so it would do nothing)
 makeSimpleToggleRow(makeRevealWrapper(AppearanceSection, RowHeight, function() return State.Preset == "None" end), "Background Blur", "UIBlur")
 makeSimpleToggleRow(AppearanceSection, "UI Shadow", "UIShadow")
-makeSimpleToggleRow(AppearanceSection, "Current Song", "CurrentSong")
 
+-- RIGHT COLUMN
 local ConfigSection = makeSimpleSection(SettingsRight, "Config", true)
 ConfigNameBox = select(2, makeSimpleTextBoxRow(ConfigSection, "Config name"))
 rebuildConfigDropdown = select(3, makeSimpleChoiceRow(ConfigSection, "Saved", ConfigNames,
@@ -2591,6 +2367,8 @@ makeSimpleButtonRow(makeRevealWrapper(SettingsMisc, RowHeight, function() return
 makeSimpleButtonRow(SettingsMisc, { { "Unload UI", unloadUI } })
 end
 
+------------------------------------------------------------------ feature backend
+-- Shared held-key state is also used by the Tween Click TP runtime.
 local heldInputNames = {}
 local function isTweenTpBindHeld()
 	local bind = State.Keybinds.TweenClickTpToggle
@@ -2822,6 +2600,7 @@ local function getStandardAdaptivePart(model, selection, reference)
 		end
 	end
 
+	-- Every candidate is obstructed: keep the user's selected hit part as the fallback.
 	return selected or (candidates[1] and candidates[1].Part) or getStandardCombatPart(model, "HumanoidRootPart")
 end
 local function getCombatAimPosition(player, selection, adaptive, reference)
@@ -2876,6 +2655,7 @@ local function camIsValidTarget(plr)
 	local model = getStandardCombatModel(plr) or getEspCharacter(plr)
 	if not model then return false end
 	if State.Toggles.TeamCheck and LocalPlayer.Team ~= nil and plr.Team == LocalPlayer.Team then return false end
+	if not FriendChecks.passes(plr) then return false end
 	if State.Toggles.DeadCheck then
 		local hum = model:FindFirstChildWhichIsA("Humanoid", true)
 		if hum and hum.Health <= 0 then return false end
@@ -2885,6 +2665,7 @@ end
 local function camPlayerCanRemainLocked(plr)
 	if not plr or plr == LocalPlayer or plr.Parent ~= Players then return false end
 	if State.Toggles.TeamCheck and LocalPlayer.Team ~= nil and plr.Team == LocalPlayer.Team then return false end
+	if not FriendChecks.passes(plr) then return false end
 	return true
 end
 Players.PlayerRemoving:Connect(function(plr)
@@ -2910,7 +2691,8 @@ local function updateCamLockFrame(deltaTime)
 
 	if camLockedTarget ~= nil and not camIsValidTarget(camLockedTarget) then
 		if State.Toggles.StickyAim and camPlayerCanRemainLocked(camLockedTarget) then
-
+			-- Keep the same player selected while their character is dead or respawning.
+			-- The camera resumes tracking them once they have a valid character again.
 			return
 		end
 		camLockedTarget = nil
@@ -2945,7 +2727,8 @@ local function updateCamLockFrame(deltaTime)
 	)
 	if not position then return end
 	if not modelPassesWallCheck(position, model) then
-
+		-- Wall Check can temporarily pause tracking without forcing a new target.
+		-- With Sticky Aim off, release the blocked target and acquire another one.
 		if not State.Toggles.StickyAim then
 			camLockedTarget = nil
 			camReacquireAfter = os.clock()
@@ -2966,6 +2749,7 @@ local function updateCamLockFrame(deltaTime)
 	end
 end
 
+-- Run after Roblox's camera controller so ESP can project against this exact camera frame.
 pcall(function() RunService:UnbindFromRenderStep(CamLockRenderName) end)
 RunService:BindToRenderStep(
 	CamLockRenderName,
@@ -2999,16 +2783,10 @@ _G.WaveLite_CamLock_Toggle = function(forceState)
 	end
 end
 function __WaveLiteSetupSilent()
-	local worldspaceFallbackPlaceId = 12673840215
-	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0,
-	shotHistory={}, shotSequence=0, lastShotSignal=0, activeMethod="Raycast", autoChanges=0,
-	autoReason="insufficient firing evidence; Worldspace Raycast is the default", methodEvidence={},
-	lastShotSource="none", lastCallerByMethod={}, target=nil, cache=nil, targetAt=0, redirected=0,
-	observed=0, primaryHits=0, totalObserved=0, methodCounts={}, lastDetectedMethod=nil, hooked=false,
-	updating=false, mouse=LocalPlayer:GetMouse(), player=nil, lastMethod=nil, lastReject=nil, lastError=nil,
-	fallbackProbe=false, fallbackAttempts=0, fallbackDetections=0, fallbackUsed=0, fallbackHits=0,
-	fallbackLastTarget=nil, acsStatus="Searching for ACS", acsActor=nil, acsScript=nil,
-	acsRebindRequested=false, acsRebindAt=0, diagnostics={}, logThrottle={}}
+	local silent = {enabled=false, active=true, tool=nil, toolConnection=nil, connections={}, shotUntil=0, lastFire=0, target=nil, cache=nil, targetAt=0, redirected=0, observed=0, hooked=false, updating=false, mouse=LocalPlayer:GetMouse(), player=nil, lastMethod=nil, lastReject=nil, useACS=false}
+	local gameSpecificACS = game.PlaceId == 12673840215
+	local acsBridgeFolder, acsTargetValue, acsEnabledValue, acsActiveValue, acsPredictionValue, acsReadyValue, acsErrorValue
+	local acsStartupError
 	if type(_G.WaveLiteSilentHookContext)=="table" then
 		_G.WaveLiteSilentHookContext.active = false
 		_G.WaveLiteSilentHookContext.enabled = false
@@ -3019,128 +2797,9 @@ function __WaveLiteSetupSilent()
 		table.insert(silent.connections,c)
 		return c
 	end
-	local function logDiagnostic(level, message, throttleKey)
-		local now=os.clock()
-		if throttleKey and now-(silent.logThrottle[throttleKey] or 0)<1 then return end
-		if throttleKey then silent.logThrottle[throttleKey]=now end
-		local line=string.format("[%0.2f] %s: %s",now,tostring(level or "INFO"),tostring(message or ""))
-		table.insert(silent.diagnostics,line)
-		while #silent.diagnostics>30 do table.remove(silent.diagnostics,1) end
-		if level=="ERROR" then silent.lastError=tostring(message) end
-		pcall(warn,"[Wave Lite Silent] "..line)
-	end
-	local function readAcsRuntime()
-		if type(getgenv)~="function" then return nil end
-		local ok,environment=pcall(getgenv)
-		if not ok or type(environment)~="table" then return nil end
-		local state=environment.WaveLiteACS_State
-		return type(state)=="table" and state or nil
-	end
 	local function currentTool()
 		local c=LocalPlayer.Character
 		return c and c:FindFirstChildOfClass("Tool") or nil
-	end
-	local function normalizeRayMethod(method)
-		if method=="findPartOnRay" then return "FindPartOnRay" end
-		if method=="Raycast" or method=="FindPartOnRay" or method=="FindPartOnRayWithIgnoreList"
-			or method=="FindPartOnRayWithWhitelist" or method=="Mouse.Hit/Target" then return method end
-		return nil
-	end
-	local function markShotSignal(source)
-		if not silent.active or not silent.enabled then return end
-		local now=os.clock()
-		local record=silent.shotHistory[#silent.shotHistory]
-		if not record or now-(record.lastSignal or record.time)>0.035 then
-			silent.shotSequence+=1
-			record={id=silent.shotSequence,time=now,lastSignal=now,expires=now+0.24,toolActivated=false,mouseDown=false,methods={},callers={}}
-			table.insert(silent.shotHistory,record)
-			while #silent.shotHistory>32 do table.remove(silent.shotHistory,1) end
-		else
-			record.lastSignal=now
-			record.expires=math.max(record.expires or 0,now+0.24)
-		end
-		if source=="Tool.Activated" then record.toolActivated=true end
-		if source=="MouseButton1" then record.mouseDown=true end
-		silent.shotUntil=math.max(silent.shotUntil,now+0.24)
-		silent.lastShotSignal=now
-		silent.lastShotSource=source
-	end
-	local function recentShotRecord()
-		local record=silent.shotHistory[#silent.shotHistory]
-		if record and os.clock()<=(record.expires or 0) then return record end
-		return nil
-	end
-	local function evaluateAutoMethod()
-		local scores,shots={},{}
-		local now=os.clock()
-		for i=#silent.shotHistory,1,-1 do
-			local record=silent.shotHistory[i]
-			if now-(record.time or 0)>12 then
-				table.remove(silent.shotHistory,i)
-			else
-				local weight=record.toolActivated and 2 or 1
-				for method in pairs(record.methods) do
-					scores[method]=(scores[method] or 0)+weight
-					shots[method]=(shots[method] or 0)+1
-				end
-			end
-		end
-		local rayScore=scores.Raycast or 0
-		local rayShots=shots.Raycast or 0
-		local bestLegacy,bestScore,bestShots=nil,0,0
-		local legacyMethods={"FindPartOnRay","FindPartOnRayWithIgnoreList","FindPartOnRayWithWhitelist","Mouse.Hit/Target"}
-		for _,method in ipairs(legacyMethods) do
-			local score=scores[method] or 0
-			local count=shots[method] or 0
-			if count>=4 and score>=4 and score>bestScore then bestLegacy,bestScore,bestShots=method,score,count end
-		end
-		local selected="Raycast"
-		local reason
-		if bestLegacy and bestScore>=rayScore+3 then
-			selected=bestLegacy
-			reason=string.format("%s correlated with %d firing events (score %d); Raycast score %d",bestLegacy,bestShots,bestScore,rayScore)
-		elseif rayShots>=3 then
-			reason=string.format("Worldspace Raycast correlated with %d firing events (score %d)",rayShots,rayScore)
-		else
-			reason=string.format("insufficient firing evidence; keeping Worldspace Raycast default (Raycast %d shots, legacy best %d)",rayShots,bestShots)
-		end
-		if game.PlaceId ~= worldspaceFallbackPlaceId then
-			selected = "Raycast"
-			reason = "Worldspace Raycast default; fallback restricted to supported game"
-		end
-		if selected~=silent.activeMethod then
-			local previous=silent.activeMethod
-			silent.activeMethod=selected
-			silent.autoChanges+=1
-			silent.autoReason=reason
-			logDiagnostic("INFO","Auto backend changed: "..tostring(previous).." -> "..tostring(selected).."; "..reason,"autoSwitch")
-		else
-			silent.autoReason=reason
-		end
-		local evidence={}
-		for _,method in ipairs({"Raycast","FindPartOnRay","FindPartOnRayWithIgnoreList","FindPartOnRayWithWhitelist","Mouse.Hit/Target"}) do
-			local n=shots[method] or 0
-			if n>0 then evidence[method]=string.format("%d shots/%d",n,scores[method] or 0) end
-		end
-		silent.methodEvidence=evidence
-	end
-	local function recordAutoMethod(method)
-		local canonical=normalizeRayMethod(method)
-		if not canonical then return end
-		local record=recentShotRecord()
-		if not record or record.methods[canonical] then return end
-		record.methods[canonical]=true
-		local caller="unavailable"
-		if type(getcallingscript)=="function" then
-			local ok,script=pcall(getcallingscript)
-			if ok and typeof(script)=="Instance" then
-				local nameOk,name=pcall(function() return script:GetFullName() end)
-				if nameOk then caller=name end
-			end
-		end
-		record.callers[canonical]=caller
-		silent.lastCallerByMethod[canonical]=caller
-		evaluateAutoMethod()
 	end
 	local function setTool()
 		local tool=currentTool()
@@ -3150,21 +2809,11 @@ function __WaveLiteSetupSilent()
 		silent.target=nil
 		silent.cache=nil
 		silent.shotUntil=0
-		if tool then
-			local ok,connection=pcall(function()
-				return tool.Activated:Connect(function() markShotSignal("Tool.Activated") end)
-			end)
-			if ok then silent.toolConnection=connection end
-		end
 	end
-	connect(UserInputService.InputBegan,function(input,gameProcessed)
-		if input.UserInputType==Enum.UserInputType.MouseButton1 and not gameProcessed and currentTool() then
-			markShotSignal("MouseButton1")
-		end
-	end)
 	local function goodTarget(player)
 		if not player or player==LocalPlayer or not player.Parent then return false end
 		if State.Toggles.TeamCheck and LocalPlayer.Team~=nil and player.Team==LocalPlayer.Team then return false end
+		if not FriendChecks.passes(player) then return false end
 		local character=getStandardCombatModel(player) or getEspCharacter(player)
 		if not character then return false end
 		if State.Toggles.DeadCheck then
@@ -3189,7 +2838,8 @@ function __WaveLiteSetupSilent()
 		local camera=workspace.CurrentCamera
 		if not camera then return nil end
 		local projected=camera:WorldToViewportPoint(position)
-
+		-- A retained Sticky Aim target can move beyond the visible viewport; only reject
+		-- targets behind the camera. New acquisitions are still constrained by FOV distance.
 		if projected.Z<=0 then return nil end
 		local dist=(Vector2.new(projected.X,projected.Y)-mouse).Magnitude
 		return {player=player,position=position,part=part,model=model,dist=dist}
@@ -3197,12 +2847,13 @@ function __WaveLiteSetupSilent()
 	local function silentPlayerCanRemainTargeted(player)
 		if not player or player == LocalPlayer or player.Parent ~= Players then return false end
 		if State.Toggles.TeamCheck and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then return false end
+		if not FriendChecks.passes(player) then return false end
 		return true
 	end
 	local function selectTarget()
 		if silent.updating then return end
 		silent.updating=true
-		local ok,err=pcall(function()
+		local ok=pcall(function()
 			setTool()
 			if not silent.enabled then silent.target=nil;silent.cache=nil;silent.player=nil;return end
 			local mouse=UserInputService:GetMouseLocation()
@@ -3210,6 +2861,8 @@ function __WaveLiteSetupSilent()
 			local retained=nil
 			local sticky=State.Toggles.StickyAim == true
 
+			-- Prefer the already-acquired player. Sticky Aim lets that player remain selected
+			-- outside the FOV and across death/respawn; without it, they must stay in the FOV.
 			local currentPlayer=silent.player
 			if currentPlayer then
 				if not silentPlayerCanRemainTargeted(currentPlayer) then
@@ -3221,7 +2874,8 @@ function __WaveLiteSetupSilent()
 					if previous and (sticky or previous.dist<=radius) then
 						retained=previous
 					elseif sticky then
-
+						-- The selected player is temporarily not aimable (usually dead,
+						-- respawning, or occluded). Keep their identity, but never use a stale part.
 						silent.cache=nil
 						return
 					else
@@ -3231,6 +2885,7 @@ function __WaveLiteSetupSilent()
 				end
 			end
 
+			-- No retained target: acquire the nearest valid player inside the FOV.
 			if not retained then
 				local closest=radius
 				for _,player in ipairs(Players:GetPlayers()) do
@@ -3256,13 +2911,11 @@ function __WaveLiteSetupSilent()
 			end
 		end)
 		silent.updating=false
-		if not ok then
-			silent.cache=nil
-			logDiagnostic("ERROR","Target selection failed: "..tostring(err),"selectTarget")
-		end
+		if not ok then silent.cache=nil end
 	end
 	local function canRedirect()
-
+		-- Match the supplied known-working hook gate exactly. Do not re-resolve the
+		-- target model here: some games expose a separate combat model from Player.Character.
 		if not silent.active or not silent.enabled or silent.updating then return nil end
 		local cache=silent.cache
 		if not cache or not cache.part or not cache.part.Parent or os.clock()-cache.stamp>0.2 then return nil end
@@ -3274,9 +2927,8 @@ function __WaveLiteSetupSilent()
 	end
 	local function validateOriginalArguments(method,args)
 		if method=="Raycast" then
-
-			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3"
-				and (args[3]==nil or typeof(args[3])=="RaycastParams")
+			-- Preserve the exact argument contract from the supplied working build.
+			return typeof(args[1])=="Vector3" and typeof(args[2])=="Vector3" and typeof(args[3])=="RaycastParams"
 		end
 		if method=="FindPartOnRay" or method=="findPartOnRay" then
 			return typeof(args[1])=="Ray"
@@ -3286,561 +2938,226 @@ function __WaveLiteSetupSilent()
 		end
 		return false
 	end
+	-- This is the direct redirection path from the supplied last-working build.
+	-- Do not add camera-script or angle heuristics here: those gates caused valid
+	-- weapon raycasts to pass through unchanged in the newer build.
 	local function getOriginalDirection(origin,position)
 		local diff=position-origin
 		if diff.Magnitude<=0.001 then return nil end
 		return diff.Unit*1000
 	end
-	local oldNamecall
-	local fallbackRaycastParams=RaycastParams.new()
-	fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Exclude
-	fallbackRaycastParams.IgnoreWater=true
-
-	local function refreshFallbackFilter(extraIgnore)
-		local ignored={}
-		local character=LocalPlayer.Character
-		if character then table.insert(ignored,character) end
-		local acs=workspace:FindFirstChild("ACS_WorkSpace")
-		if acs then
-			local client=acs:FindFirstChild("Client")
-			local server=acs:FindFirstChild("Server")
-			if client then table.insert(ignored,client) end
-			if server then table.insert(ignored,server) end
+	local function startGameSpecificACS()
+		if not gameSpecificACS then return end
+		if type(run_on_actor)~="function" or type(hookfunction)~="function" or type(getsenv)~="function" then
+			acsStartupError="Executor is missing run_on_actor, hookfunction, or getsenv"
+			return
 		end
-		if type(extraIgnore)=="table" then
-			for _,item in ipairs(extraIgnore) do table.insert(ignored,item) end
-		end
-		fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Exclude
-		fallbackRaycastParams.FilterDescendantsInstances=ignored
-	end
-
-	local function fallbackPositionVisible(position,model,origin)
-		if typeof(position)~="Vector3" or not model then return false end
-		local direction=position-origin
-		if direction.Magnitude<=0.01 then return true end
-		refreshFallbackFilter()
-		silent.fallbackProbe=true
-		local ok,result=pcall(function()
-			return workspace:Raycast(origin,direction,fallbackRaycastParams)
-		end)
-		silent.fallbackProbe=false
-		if not ok then
-			logDiagnostic("ERROR","Fallback visibility ray failed: "..tostring(result),"fallbackVisibility")
-			return false
-		end
-
-		return result==nil or (result.Instance and result.Instance:IsDescendantOf(model))
-	end
-
-	local function selectWorldspaceFallback(origin)
-		if typeof(origin)~="Vector3" then return nil end
-		local camera=workspace.CurrentCamera
-		if not camera then return nil end
-		local mouse=UserInputService:GetMouseLocation()
-		local radius=tonumber(State.Sliders.SilentFovRadius) or 150
-		local candidates={}
-		local preferred=State.Toggles.StickyAim and silent.player or nil
-
-		for _,player in ipairs(Players:GetPlayers()) do
-			if player==LocalPlayer or (preferred and player~=preferred) then continue end
-			if not goodTarget(player) then continue end
-			local position,model,motionPart
-			if State.Toggles.AdaptiveAim then
-				position,model,motionPart=silentAdaptivePart(player,mouse)
-			else
-				position,model,motionPart=getCombatAimPosition(player,State.AimPart,false,mouse)
+		task.spawn(function()
+			local playerScripts=LocalPlayer:FindFirstChild("PlayerScripts") or LocalPlayer:WaitForChild("PlayerScripts",10)
+			if not playerScripts then acsStartupError="PlayerScripts was not available";return end
+			if not silent.active or not ScreenGui.Parent then return end
+			local previous=playerScripts:FindFirstChild("Wave16SilentACSBridge")
+			if previous then pcall(function() previous:Destroy() end) end
+			local folder=Instance.new("Folder")
+			folder.Name="Wave16SilentACSBridge"
+			local function makeValue(className,name,value)
+				local object=Instance.new(className)
+				object.Name=name
+				object.Value=value
+				object.Parent=folder
+				return object
 			end
-			if not position or not model then continue end
-			local screen,onScreen=camera:WorldToViewportPoint(position)
-			if not onScreen or screen.Z<=0 then continue end
-			local distance=(Vector2.new(screen.X,screen.Y)-mouse).Magnitude
-			if distance<=radius then
-				table.insert(candidates,{player=player,position=position,motionPart=motionPart,model=model,distance=distance})
-			end
-		end
-		table.sort(candidates,function(a,b) return a.distance<b.distance end)
-		for _,entry in ipairs(candidates) do
-			if fallbackPositionVisible(entry.position,entry.model,origin) then
-				local velocity=entry.motionPart and entry.motionPart.AssemblyLinearVelocity or Vector3.zero
-				local position=entry.position+velocity*(tonumber(State.Sliders.SilentPrediction) or 0)
-				silent.fallbackDetections+=1
-				silent.fallbackLastTarget=entry.player.Name
-				return {player=entry.player,part=entry.motionPart,model=entry.model,position=position,stamp=os.clock()}
-			end
-		end
-		return nil
-	end
-
-	local function resultInstance(method,resultPack)
-		if method=="Raycast" then
-			local result=resultPack[1]
-			return typeof(result)=="RaycastResult" and result.Instance or nil
-		end
-		local part=resultPack[1]
-		return typeof(part)=="Instance" and part or nil
-	end
-	local function resultHitsTarget(method,resultPack,target)
-		local instance=resultInstance(method,resultPack)
-		return instance~=nil and target~=nil and target.model~=nil and instance:IsDescendantOf(target.model)
-	end
-	local function prepareUniversalParams(method,args)
-		if method=="FindPartOnRayWithWhitelist" then
-			fallbackRaycastParams.FilterType=Enum.RaycastFilterType.Include
-			fallbackRaycastParams.FilterDescendantsInstances=args[2]
-		else
-			local extraIgnore=method=="FindPartOnRayWithIgnoreList" and args[2] or nil
-			refreshFallbackFilter(extraIgnore)
-		end
-	end
-	local function useWorldspaceFallback(self,args,origin,method)
-		if game.PlaceId ~= worldspaceFallbackPlaceId then return nil end
-		silent.fallbackAttempts+=1
-		local fallback=selectWorldspaceFallback(origin)
-		if not fallback then
-			silent.lastReject="Worldspace fallback: no visible target in FOV"
-			logDiagnostic("INFO",silent.lastReject,"fallbackNoTarget")
-			return nil
-		end
-		local direction=fallback.position-origin
-		if direction.Magnitude<=0.001 then
-			silent.lastReject="Worldspace fallback: target too close to ray origin"
-			logDiagnostic("ERROR",silent.lastReject,"fallbackNear")
-			return nil
-		end
-		prepareUniversalParams(method,args)
-		silent.fallbackProbe=true
-		local ok,rayResult=pcall(function()
-			return workspace:Raycast(origin,direction,fallbackRaycastParams)
-		end)
-		silent.fallbackProbe=false
-		if not ok then
-			silent.lastReject="Universal Raycast error: "..tostring(rayResult)
-			logDiagnostic("ERROR",silent.lastReject,"fallbackQuery")
-			return nil
-		end
-		if not rayResult or not rayResult.Instance or not rayResult.Instance:IsDescendantOf(fallback.model) then
-			silent.lastReject="Universal Raycast ran but did not hit fallback target"
-			logDiagnostic("INFO",silent.lastReject,"fallbackMiss")
-			return nil
-		end
-		silent.fallbackUsed+=1
-		silent.fallbackHits+=1
-		silent.player=fallback.player
-		silent.cache=fallback
-		silent.fallbackLastTarget=fallback.player.Name
-		silent.lastReject=nil
-		logDiagnostic("INFO","Universal Raycast fallback hit "..fallback.player.Name,"fallbackHit")
-		if method=="Raycast" then return table.pack(rayResult) end
-
-		return table.pack(rayResult.Instance,rayResult.Position,rayResult.Normal,rayResult.Material)
-	end
-
-	local acsInstallPayload = [[
-local actor, targetScript, initialConfig = ...
-if type(getsenv) ~= "function" or type(hookfunction) ~= "function" then error("executor missing getsenv/hookfunction") end
-local globals = getgenv()
-globals.WaveLiteACS_Config = initialConfig
-local runtime = globals.WaveLiteACS_State
-if type(runtime) ~= "table" or runtime.Session ~= initialConfig.Session then
-    runtime = {Session=initialConfig.Session, Calls=0, Redirected=0, NoTarget=0, Rehooks=0, Respawns=0, HookReady=false, LastEvent="ACS adapter starting", LastError=nil}
-    globals.WaveLiteACS_State = runtime
+			acsTargetValue=makeValue("ObjectValue","Target",nil)
+			acsEnabledValue=makeValue("BoolValue","Enabled",false)
+			acsActiveValue=makeValue("BoolValue","Active",true)
+			acsPredictionValue=makeValue("NumberValue","Prediction",tonumber(State.Sliders.SilentPrediction) or 0)
+			acsReadyValue=makeValue("BoolValue","Ready",false)
+			acsErrorValue=makeValue("StringValue","Error","")
+			folder.Parent=playerScripts
+			acsBridgeFolder=folder
+			local payload = [==[
+local actor,targetValue,enabledValue,activeValue,predictionValue,readyValue,errorValue = ...
+local clone = type(clonefunction)=="function" and clonefunction or function(fn) return fn end
+local wrap = type(newcclosure)=="function" and newcclosure or function(fn) return fn end
+local RunService = game:GetService("RunService")
+local activeState
+local function readValue(object,default)
+    if not object or not object.Parent then return default end
+    local ok,value=pcall(function() return object.Value end)
+    if ok then return value end
+    return default
 end
-local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local plr = Players.LocalPlayer
-local rp = RaycastParams.new()
-rp.FilterType = Enum.RaycastFilterType.Exclude
-rp.IgnoreWater = true
-local function findPart(model, names)
-    for _, name in ipairs(names) do
-        local part = model and model:FindFirstChild(name, true)
-        if part and part:IsA("BasePart") then return part end
-    end
-    return nil
-end
-local aliases = {
-    HumanoidRootPart={"HumanoidRootPart","Torso"}, Head={"Head"}, UpperTorso={"UpperTorso","Torso"},
-    LeftArm={"LeftUpperArm","LeftLowerArm","LeftHand","Left Arm"},
-    RightArm={"RightUpperArm","RightLowerArm","RightHand","Right Arm"},
-    LeftLeg={"LeftUpperLeg","LeftLowerLeg","LeftFoot","Left Leg"},
-    RightLeg={"RightUpperLeg","RightLowerLeg","RightFoot","Right Leg"},
-}
-local function visible(part, model, origin)
-    local character = plr.Character
-    local ignored = {}
-    if character then table.insert(ignored, character) end
-    local acs = workspace:FindFirstChild("ACS_WorkSpace")
-    if acs then
-        local client = acs:FindFirstChild("Client")
-        local server = acs:FindFirstChild("Server")
-        if client then table.insert(ignored, client) end
-        if server then table.insert(ignored, server) end
-    end
-    rp.FilterDescendantsInstances = ignored
-    local direction = part.Position - origin
-    if direction.Magnitude <= 0.01 then return true end
-    local result = workspace:Raycast(origin, direction, rp)
-    return result == nil or result.Instance:IsDescendantOf(model)
-end
-local function getTarget(origin, cfg)
-    if not cfg or not cfg.Enabled then return nil end
-    local camera = workspace.CurrentCamera
-    if not camera then return nil end
-    local mouse = UIS:GetMouseLocation()
-    local radius = tonumber(cfg.FovRadius) or 150
-    local selected = nil
-    local closest = radius
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == plr then continue end
-        if cfg.TeamCheck and plr.Team ~= nil and player.Team == plr.Team then continue end
-        local model = player.Character
-        if not model or model:FindFirstChildOfClass("ForceField") then continue end
-        if cfg.DeadCheck then
-            local humanoid = model:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health <= 0 then continue end
-        end
-        local parts = {}
-        if cfg.AdaptiveAim then
-            for _, name in ipairs({"HumanoidRootPart","Head","UpperTorso","Torso","LeftUpperArm","RightUpperArm","LeftUpperLeg","RightUpperLeg"}) do
-                local part = findPart(model,{name})
-                if part then table.insert(parts,part) end
-            end
-        else
-            local names = aliases[cfg.AimPart] or {cfg.AimPart or "UpperTorso"}
-            local part = findPart(model,names)
-            if not part then part = findPart(model,{"Head","UpperTorso","Torso"}) end
-            if part then table.insert(parts,part) end
-        end
-        for _, part in ipairs(parts) do
-            local screen,onScreen = camera:WorldToViewportPoint(part.Position)
-            if onScreen and screen.Z > 0 then
-                local distance = (Vector2.new(screen.X,screen.Y)-mouse).Magnitude
-                if distance < closest and (not cfg.WallCheck or visible(part,model,origin)) then
-                    closest = distance
-                    selected = part
-                    if not cfg.AdaptiveAim then break end
-                end
-            end
-        end
-    end
-    return selected
-end
-local tasks = setmetatable({}, {__mode="k"})
-local replacement = type(newcclosure) == "function" and newcclosure or function(fn) return fn end
-local clone = type(clonefunction) == "function" and clonefunction or function(fn) return fn end
-local hookedFunction = nil
-local function installThrowRayCast(fn)
-    if type(fn) ~= "function" then
-        runtime.HookReady = false
-        runtime.LastEvent = "ThrowRayCast not ready; monitoring script environment"
-        return false
-    end
-    if hookedFunction == fn then return true end
-    local original
-    local ok, err = pcall(function()
-        original = clone(hookfunction(fn, replacement(function(...)
-            local args = table.pack(...)
-            local bullet, origin = args[2], args[3]
-            runtime.Calls = (tonumber(runtime.Calls) or 0) + 1
-            runtime.LastCall = os.clock()
-            local cfg = globals.WaveLiteACS_Config
-            if cfg and cfg.Enabled and typeof(origin) == "Vector3"
-                and typeof(bullet) == "Instance" and bullet.Parent then
-                local targetOk, target = pcall(getTarget,origin,cfg)
-                if not targetOk then
-                    runtime.LastError = "Target detection failed: " .. tostring(target)
-                    runtime.LastEvent = "ThrowRayCast called; target detection errored"
-                elseif target then
-                    if tasks[bullet] then pcall(task.cancel,tasks[bullet]); tasks[bullet] = nil end
-                    runtime.Redirected = (tonumber(runtime.Redirected) or 0) + 1
-                    runtime.LastTarget = target.Parent and target.Parent.Name or target.Name
-                    runtime.LastEvent = "Projectile redirected to " .. tostring(runtime.LastTarget)
-                    tasks[bullet] = task.defer(function()
-                        while target and target.Parent and bullet and bullet.Parent do
-                            local current = globals.WaveLiteACS_Config
-                            if not current or not current.Enabled then break end
-                            local velocity = target.AssemblyLinearVelocity or Vector3.zero
-                            local prediction = tonumber(current.Prediction) or 0
-                            pcall(function() bullet.Position = target.Position + velocity * prediction end)
-                            task.wait()
-                        end
-                        tasks[bullet] = nil
-                    end)
-                else
-                    runtime.NoTarget = (tonumber(runtime.NoTarget) or 0) + 1
-                    runtime.LastEvent = "ThrowRayCast called; no target inside FOV"
-                end
-            end
-            return original(table.unpack(args,1,args.n))
-        end)))
+activeState = readValue(activeValue,false)==true
+local enabledState = readValue(enabledValue,false)==true
+local targetState = readValue(targetValue,nil)
+local predictionState = tonumber(readValue(predictionValue,0)) or 0
+local activeBullets = setmetatable({}, {__mode="k"})
+local heartbeatConnection
+local hooked = setmetatable({}, {__mode="k"})
+local function watchValue(object,callback)
+    if not object or not object.Parent then return end
+    object:GetPropertyChangedSignal("Value"):Connect(function()
+        local ok,value=pcall(function() return object.Value end)
+        if ok then callback(value) end
     end)
-    if not ok or type(original) ~= "function" then
-        runtime.HookReady = false
-        runtime.LastError = "ThrowRayCast hook failed: " .. tostring(err)
-        runtime.LastEvent = "Hook installation failed"
-        return false
+end
+watchValue(activeValue,function(value)
+    activeState=value==true
+    if not activeState then
+        for bullet in pairs(activeBullets) do activeBullets[bullet]=nil end
+        if heartbeatConnection then heartbeatConnection:Disconnect();heartbeatConnection=nil end
     end
-    hookedFunction = fn
-    globals.WaveLiteACS_Function = fn
-    globals.WaveLiteACS_Installed = true
-    globals.WaveLiteACS_HookVersion = 3
-    runtime.HookReady = true
-    runtime.Rehooks = (tonumber(runtime.Rehooks) or 0) + 1
-    runtime.LastError = nil
-    runtime.LastEvent = "ThrowRayCast hook installed/reinstalled"
-    warn("[Wave Lite ACS] ThrowRayCast hook installed/reinstalled")
+end)
+watchValue(enabledValue,function(value)
+    enabledState=value==true
+    if not enabledState then
+        for bullet in pairs(activeBullets) do activeBullets[bullet]=nil end
+    end
+end)
+watchValue(targetValue,function(value) targetState=value end)
+watchValue(predictionValue,function(value) predictionState=tonumber(value) or 0 end)
+local function active()
+    return activeState
+end
+local function setReady(value)
+    pcall(function() if readyValue and readyValue.Parent then readyValue.Value=value end end)
+end
+local function setError(value)
+    pcall(function() if errorValue and errorValue.Parent then errorValue.Value=tostring(value or "") end end)
+end
+local function findThrowRayCast()
+    if not actor or not actor.Parent then return nil end
+    local scriptObject=actor:FindFirstChildOfClass("LocalScript")
+    if not scriptObject then scriptObject=actor:FindFirstChildWhichIsA("LocalScript",true) end
+    if not scriptObject then setError("ACS LocalScript not found");return nil end
+    local ok,environment=pcall(getsenv,scriptObject)
+    if not ok or type(environment)~="table" then setError("Could not read ACS LocalScript environment");return nil end
+    local fn=rawget(environment,"ThrowRayCast")
+    if type(fn)~="function" then setError("ThrowRayCast not found in ACS LocalScript");return nil end
+    return scriptObject,fn
+end
+local function install(fn)
+    if hooked[fn] then setReady(true);return true end
+    local original
+    local callback=function(...)
+        local args=table.pack(...)
+        local bullet=args[2]
+        local target=targetState
+        if activeState and enabledState and typeof(bullet)=="Instance" and bullet:IsA("BasePart") and bullet.Parent
+            and typeof(target)=="Instance" and target:IsA("BasePart") and target.Parent then
+            activeBullets[bullet]=target
+        end
+        return original(table.unpack(args,1,args.n))
+    end
+    local hookOk,previous=pcall(function() return hookfunction(fn,wrap(callback)) end)
+    if not hookOk or type(previous)~="function" then setReady(false);setError(previous);return false end
+    local cloneOk,copy=pcall(clone,previous)
+    original=(cloneOk and type(copy)=="function") and copy or previous
+    hooked[fn]=true
+    setError("")
+    setReady(true)
     return true
 end
-local env = getsenv(targetScript)
-local initialFunction = rawget(env, "ThrowRayCast")
-if globals.WaveLiteACS_Installed and globals.WaveLiteACS_Function == initialFunction and type(initialFunction) == "function" then
-    -- Reuse an already-installed adapter instead of stacking duplicate hooks when
-    -- the outer controller requests a post-respawn refresh on the same function.
-    hookedFunction = initialFunction
-    runtime.HookReady = true
-    runtime.LastEvent = "Existing ThrowRayCast hook found; monitoring for respawn replacements"
-else
-    if not installThrowRayCast(initialFunction) then error(runtime.LastError or "ACS ThrowRayCast was not found") end
-end
--- Respawning can recreate ThrowRayCast inside the same Actor/LocalScript. Watch the
--- environment itself, not only the Actor and LocalScript Instances.
-if globals.WaveLiteACS_WatcherScript == targetScript and globals.WaveLiteACS_WatcherId and globals.WaveLiteACS_WatcherActive then
-    return
-end
-globals.WaveLiteACS_WatcherScript = targetScript
-globals.WaveLiteACS_WatcherId = (tonumber(globals.WaveLiteACS_WatcherId) or 0) + 1
-local watcherId = globals.WaveLiteACS_WatcherId
-globals.WaveLiteACS_WatcherActive = true
-plr.CharacterAdded:Connect(function()
-    runtime.Respawns = (tonumber(runtime.Respawns) or 0) + 1
-    runtime.LastEvent = "Character respawned; monitoring ACS function replacement"
-    task.delay(0.35,function()
-        if watcherId ~= globals.WaveLiteACS_WatcherId or not targetScript.Parent then return end
-        local ok, currentEnv = pcall(getsenv,targetScript)
-        local currentFunction = ok and type(currentEnv) == "table" and rawget(currentEnv,"ThrowRayCast") or nil
-        if type(currentFunction) == "function" and currentFunction ~= hookedFunction then
-            installThrowRayCast(currentFunction)
+heartbeatConnection=RunService.Heartbeat:Connect(function()
+    if not activeState or not enabledState then return end
+    for bullet,target in pairs(activeBullets) do
+        if not bullet.Parent or not target or not target.Parent then
+            activeBullets[bullet]=nil
+        else
+            local position=target.Position
+            if predictionState~=0 then
+                position=position+(target.AssemblyLinearVelocity or Vector3.zero)*predictionState
+            end
+            bullet.Position=position
         end
-    end)
+    end
 end)
 task.spawn(function()
-    while watcherId == globals.WaveLiteACS_WatcherId and targetScript and targetScript.Parent do
-        local ok, currentEnv = pcall(getsenv,targetScript)
-        if ok and type(currentEnv) == "table" then
-            local currentFunction = rawget(currentEnv,"ThrowRayCast")
-            if type(currentFunction) == "function" and currentFunction ~= hookedFunction then
-                runtime.LastEvent = "ACS replaced ThrowRayCast; reinstalling hook"
-                installThrowRayCast(currentFunction)
-            elseif type(currentFunction) ~= "function" then
-                runtime.HookReady = false
-                runtime.LastEvent = "Waiting for ACS to recreate ThrowRayCast"
-            end
+    while active() do
+        local ok,scriptObject,fn=pcall(findThrowRayCast)
+        if ok and type(fn)=="function" then
+            local installedOk=pcall(install,fn)
+            if not installedOk then setReady(false) end
         else
-            runtime.HookReady = false
-            runtime.LastError = "Unable to read ACS LocalScript environment after respawn"
+            setReady(false)
         end
-        task.wait(0.25)
+        task.wait(0.5)
     end
-    if globals.WaveLiteACS_WatcherId == watcherId then
-        globals.WaveLiteACS_WatcherActive = false
-        runtime.HookReady = false
-        runtime.LastEvent = "ACS watcher stopped; awaiting a new Actor/LocalScript"
-    end
+    setReady(false)
 end)
-warn("[Wave Lite ACS] Respawn-aware ThrowRayCast monitor running")
-]]
-	local acsUpdatePayload = [[
-local config = ...
-getgenv().WaveLiteACS_Config = config
-]]
-	local function buildAcsConfig()
-		return {
-
-			Enabled=silent.active and silent.enabled,
-			Session=tostring(silent),
-			Method=silent.activeMethod or "Raycast",
-			AimPart=State.AimPart,
-			AdaptiveAim=State.Toggles.AdaptiveAim==true,
-			TeamCheck=State.Toggles.TeamCheck==true,
-			DeadCheck=State.Toggles.DeadCheck==true,
-			WallCheck=State.Toggles.WallCheck==true,
-			FovRadius=tonumber(State.Sliders.SilentFovRadius) or 150,
-			Prediction=tonumber(State.Sliders.SilentPrediction) or 0,
-		}
-	end
-	local function findAcsActor()
-		local playerScripts=LocalPlayer:FindFirstChild("PlayerScripts")
-		if not playerScripts then return nil,nil end
-		local actors={}
-		if type(get_actors)=="function" then
-			local ok,result=pcall(get_actors)
-			if ok and type(result)=="table" then actors=result end
-		end
-		if #actors==0 then
-			local actor=playerScripts:FindFirstChildOfClass("Actor")
-			if actor then table.insert(actors,actor) end
-		end
-		for _,actor in ipairs(actors) do
-			if actor and actor.Parent==playerScripts then
-				local targetScript=actor:FindFirstChildOfClass("LocalScript")
-				if targetScript then return actor,targetScript end
-			end
-		end
-		return nil,nil
-	end
-	local function acsConfigSignature(cfg)
-		return table.concat({tostring(cfg.Enabled),tostring(cfg.Method),tostring(cfg.AimPart),tostring(cfg.AdaptiveAim),tostring(cfg.TeamCheck),tostring(cfg.DeadCheck),tostring(cfg.WallCheck),tostring(cfg.FovRadius),tostring(cfg.Prediction)},"|")
-	end
-	task.spawn(function()
-
-		task.wait(1)
-		local lastActor,lastScript,lastSignature=nil,nil,nil
-		while silent.active and ScreenGui.Parent do
-			local acsWorkspace=workspace:FindFirstChild("ACS_WorkSpace")
-			if acsWorkspace then
-				if type(run_on_actor)~="function" then
-					silent.acsStatus="ACS found; executor lacks run_on_actor"
-				else
-					local actor,targetScript=findAcsActor()
-					if not actor or not targetScript then
-						silent.acsStatus="ACS found; waiting for Actor script"
-					else
-						local config=buildAcsConfig()
-						local signature=acsConfigSignature(config)
-						local forceRebind=silent.acsRebindRequested and os.clock()>=(silent.acsRebindAt or 0)
-						if actor~=lastActor or targetScript~=lastScript or forceRebind then
-							silent.acsStatus=forceRebind and "rebinding ThrowRayCast after respawn" or "installing ThrowRayCast adapter"
-							local ok,err=pcall(run_on_actor,actor,acsInstallPayload,actor,targetScript,config)
-							if ok then
-								silent.acsActor=actor;silent.acsScript=targetScript
-								silent.acsStatus=config.Enabled and "ThrowRayCast enabled; watching respawn/function swaps" or "adapter installed; disabled"
-								silent.acsRebindRequested=false
-								logDiagnostic("INFO",config.Enabled and "ACS ThrowRayCast adapter submitted; respawn monitor active" or "ACS ThrowRayCast adapter installed but disabled")
-								lastActor,lastScript,lastSignature=actor,targetScript,signature
-							else
-								silent.acsStatus="install error: "..tostring(err)
-								logDiagnostic("ERROR","ACS adapter install failed: "..tostring(err),"acsInstall")
-								lastActor,lastScript,lastSignature=nil,nil,nil
-							end
-						elseif signature~=lastSignature then
-							local ok,err=pcall(run_on_actor,actor,acsUpdatePayload,config)
-							if ok then
-								silent.acsStatus=config.Enabled and "ThrowRayCast enabled; awaiting projectile" or "adapter installed; disabled"
-								logDiagnostic("INFO",config.Enabled and "ACS ThrowRayCast adapter enabled" or "ACS ThrowRayCast adapter disabled")
-							else
-								silent.acsStatus="config update error: "..tostring(err)
-								logDiagnostic("ERROR","ACS adapter config update failed: "..tostring(err),"acsUpdate")
-							end
-							lastSignature=signature
+]==]
+			local actor
+			for attempt=1,100 do
+				if not silent.active or not ScreenGui.Parent then return end
+				actor=nil
+				if type(get_actors)=="function" then
+					local ok,actors=pcall(get_actors)
+					if ok and type(actors)=="table" then
+						for _,candidate in ipairs(actors) do
+							if candidate.Parent==playerScripts then actor=candidate;break end
 						end
 					end
 				end
-			else
-				silent.acsStatus="ACS not detected"
-				lastActor,lastScript,lastSignature=nil,nil,nil
+				if not actor then actor=playerScripts:FindFirstChildOfClass("Actor") end
+				if actor and (actor:FindFirstChildOfClass("LocalScript") or actor:FindFirstChildWhichIsA("LocalScript",true)) then break end
+				task.wait(0.05)
 			end
-			task.wait(0.5)
-		end
-	end)
-
+			if not actor then
+				acsReadyValue.Value=false
+				acsErrorValue.Value="ACS Actor was not found under PlayerScripts"
+				return
+			end
+			local ok,err=pcall(run_on_actor,actor,payload,actor,acsTargetValue,acsEnabledValue,acsActiveValue,acsPredictionValue,acsReadyValue,acsErrorValue)
+			if not ok then
+				acsReadyValue.Value=false
+				warn("[Wave] ACS route injection failed: "..tostring(err))
+			end
+		end)
+	end
+	startGameSpecificACS()
+	local oldNamecall
 	if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
-		local function handleNamecall(self,...)
-			if not silent.active or not silent.enabled or self~=workspace or silent.fallbackProbe then return oldNamecall(self,...) end
+		local callback=function(self,...)
+			if not silent.active or not silent.enabled or self~=workspace or silent.useACS then return oldNamecall(self,...) end
 			local method=getnamecallmethod()
-			if type(checkcaller)=="function" then
-				local ok,own=pcall(checkcaller)
-				if ok and own then return oldNamecall(self,...) end
+			local selected=State.SilentMethod
+			if method~=selected and not (selected=="FindPartOnRay" and method=="findPartOnRay") then return oldNamecall(self,...) end
+			silent.observed += 1
+			silent.lastMethod = method
+			local cache=canRedirect()
+			if not cache then
+				silent.lastReject = "No fresh target cache"
+				return oldNamecall(self,...)
 			end
-			silent.totalObserved+=1
-			silent.methodCounts[method]=(silent.methodCounts[method] or 0)+1
 			local args=table.pack(...)
 			if not validateOriginalArguments(method,args) then
-				if silent.lastDetectedMethod~=method then
-					silent.lastDetectedMethod=method
-					logDiagnostic("INFO","Observed unsupported/non-ray workspace call: "..tostring(method))
-				end
+				silent.lastReject = "Unexpected arguments for " .. tostring(method)
 				return oldNamecall(self,...)
-			end
-			recordAutoMethod(method)
-			local selected=silent.activeMethod or "Raycast"
-			local canonical=normalizeRayMethod(method)
-
-			if canonical~="Raycast" and not recentShotRecord() then return oldNamecall(self,...) end
-			if canonical~=selected then
-				if silent.lastDetectedMethod~=method then
-					silent.lastDetectedMethod=method
-					logDiagnostic("INFO","Observed "..tostring(method).."; Auto backend remains "..tostring(selected).." until firing evidence is stronger")
-				end
-				return oldNamecall(self,...)
-			end
-			silent.observed+=1
-			if silent.lastMethod~=method then
-				silent.lastMethod=method
-				logDiagnostic("INFO","Auto routed shot-window-correlated call: "..tostring(method))
 			end
 			local origin=method=="Raycast" and args[1] or args[1].Origin
-			local cache=canRedirect()
-			if cache then
-				local newDirection=getOriginalDirection(origin,cache.position)
-				if newDirection then
-					if method=="Raycast" then args[2]=newDirection else args[1]=Ray.new(origin,newDirection) end
-					silent.redirected+=1
-					local primaryResult=table.pack(oldNamecall(self,table.unpack(args,1,args.n)))
-					if resultHitsTarget(method,primaryResult,cache) then
-						silent.primaryHits+=1
-						silent.lastReject=nil
-						return table.unpack(primaryResult,1,primaryResult.n)
-					end
-					local fallbackResult=useWorldspaceFallback(self,args,origin,method)
-					if fallbackResult then return table.unpack(fallbackResult,1,fallbackResult.n) end
-					silent.lastReject=silent.lastReject or "Primary path missed and universal fallback did not confirm target"
-					logDiagnostic("INFO",silent.lastReject,"primaryMiss")
-					return table.unpack(primaryResult,1,primaryResult.n)
-				end
-				silent.lastReject="Primary path could not build a direction to target"
-				logDiagnostic("ERROR",silent.lastReject,"primaryDirection")
+			local newDirection=getOriginalDirection(origin,cache.position)
+			if not newDirection then
+				silent.lastReject = "Target too close to ray origin"
+				return oldNamecall(self,...)
+			end
+			if method=="Raycast" then
+				args[2]=newDirection
 			else
-				local fallbackResult=useWorldspaceFallback(self,args,origin,method)
-				if fallbackResult then return table.unpack(fallbackResult,1,fallbackResult.n) end
-				silent.lastReject=silent.lastReject or "No fresh target cache; universal fallback found no hit"
+				args[1]=Ray.new(origin,newDirection)
 			end
-			return oldNamecall(self,...)
-		end
-		local callback=function(self,...)
-			local originalArgs=table.pack(...)
-			local ok,result=pcall(function()
-				return table.pack(handleNamecall(self,table.unpack(originalArgs,1,originalArgs.n)))
-			end)
-			if not ok then
-				logDiagnostic("ERROR","Namecall handler exception: "..tostring(result),"namecallException")
-				return oldNamecall(self,table.unpack(originalArgs,1,originalArgs.n))
-			end
-			return table.unpack(result,1,result.n)
+			silent.redirected+=1
+			silent.lastReject=nil
+			return oldNamecall(self,table.unpack(args,1,args.n))
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
-		local ok,err=pcall(function()oldNamecall=hookmetamethod(game,"__namecall",closure)end)
+		local ok=pcall(function()oldNamecall=hookmetamethod(game,"__namecall",closure)end)
 		silent.hooked=ok and type(oldNamecall)=="function"
-		if silent.hooked then logDiagnostic("INFO","Workspace namecall hook installed")
-		else logDiagnostic("ERROR","Workspace namecall hook failed: "..tostring(err or oldNamecall)) end
-	else
-		logDiagnostic("ERROR","Executor missing hookmetamethod or getnamecallmethod")
 	end
 	local oldIndex
 	if type(hookmetamethod)=="function" then
 		local callback=function(self,key)
-			if not silent.active or not silent.enabled or self~=silent.mouse then return oldIndex(self,key) end
+			if not silent.active or not silent.enabled or self~=silent.mouse or silent.useACS or State.SilentMethod~="Mouse.Hit/Target" then return oldIndex(self,key) end
 			if key~="Hit" and key~="hit" and key~="Target" and key~="target" then return oldIndex(self,key) end
-			local shotRecord=recentShotRecord()
-			if shotRecord then
-				silent.methodCounts["Mouse.Hit/Target"]=(silent.methodCounts["Mouse.Hit/Target"] or 0)+1
-				recordAutoMethod("Mouse.Hit/Target")
-			end
-			if silent.activeMethod~="Mouse.Hit/Target" or not shotRecord then return oldIndex(self,key) end
-			silent.observed+=1
-			if silent.lastMethod~="Mouse.Hit/Target" then
-				silent.lastMethod="Mouse.Hit/Target"
-				logDiagnostic("INFO","Auto routed shot-window-correlated Mouse.Hit/Target access")
-			end
 			local cache=canRedirect()
 			if not cache then return oldIndex(self,key) end
 			silent.redirected+=1
@@ -3848,8 +3165,7 @@ getgenv().WaveLiteACS_Config = config
 			return CFrame.new(cache.position)
 		end
 		local closure=type(newcclosure)=="function" and newcclosure(callback) or callback
-		local ok,err=pcall(function()oldIndex=hookmetamethod(game,"__index",closure)end)
-		if not ok then logDiagnostic("ERROR","Mouse index hook failed: "..tostring(err),"mouseHook") end
+		pcall(function()oldIndex=hookmetamethod(game,"__index",closure)end)
 	end
 	_G.WaveLite_Silent_Toggle=function(on)
 		if type(on)=="boolean" then silent.enabled=on else silent.enabled=not silent.enabled end
@@ -3861,29 +3177,51 @@ getgenv().WaveLiteACS_Config = config
 			if refreshToggleVisual then refreshToggleVisual("Camlock") end
 		end
 		if not silent.enabled then silent.cache=nil;silent.player=nil end
-		logDiagnostic("INFO",silent.enabled and "Silent Aim enabled" or "Silent Aim disabled")
 		if refreshToggleVisual then refreshToggleVisual("Silent") end
 	end
 	connect(LocalPlayer.CharacterAdded,function()
-		if silent.toolConnection then silent.toolConnection:Disconnect(); silent.toolConnection=nil end
 		silent.tool=nil
 		silent.cache=nil
 		silent.player=nil
 		silent.shotUntil=0
-		silent.acsRebindRequested=true
-		silent.acsRebindAt=os.clock()+1
-		silent.acsStatus="respawn detected; waiting to refresh ACS hook"
-		logDiagnostic("INFO","Character respawned; refreshing ACS ThrowRayCast hook")
 	end)
 	connect(Players.PlayerRemoving,function(player)
 		if silent.player==player then silent.player=nil;silent.cache=nil end
 	end)
 	local lastTarget=0
+	local bridgeInitialized=false
+	local lastBridgeTarget,lastBridgeActive,lastBridgeEnabled,lastBridgePrediction=nil,nil,nil,nil
 	local render=connect(RunService.RenderStepped,function()
 		local now=os.clock()
 		if silent.enabled and now-lastTarget>=0.05 then
 			lastTarget=now
 			selectTarget()
+		end
+		if acsBridgeFolder and acsBridgeFolder.Parent then
+			local ready=false
+			if acsReadyValue and acsReadyValue.Parent then pcall(function() ready=acsReadyValue.Value==true end) end
+			silent.useACS=gameSpecificACS and ready
+			local targetPart=silent.cache and silent.cache.part
+			if not (targetPart and targetPart.Parent) then targetPart=nil end
+			local enabledNow=silent.active and silent.enabled and ready
+			local predictionNow=tonumber(State.Sliders.SilentPrediction) or 0
+			if not bridgeInitialized or targetPart~=lastBridgeTarget then
+				if acsTargetValue and acsTargetValue.Parent then pcall(function() acsTargetValue.Value=targetPart end) end
+				lastBridgeTarget=targetPart
+			end
+			if not bridgeInitialized or silent.active~=lastBridgeActive then
+				if acsActiveValue and acsActiveValue.Parent then pcall(function() acsActiveValue.Value=silent.active end) end
+				lastBridgeActive=silent.active
+			end
+			if not bridgeInitialized or enabledNow~=lastBridgeEnabled then
+				if acsEnabledValue and acsEnabledValue.Parent then pcall(function() acsEnabledValue.Value=enabledNow end) end
+				lastBridgeEnabled=enabledNow
+			end
+			if not bridgeInitialized or predictionNow~=lastBridgePrediction then
+				if acsPredictionValue and acsPredictionValue.Parent then pcall(function() acsPredictionValue.Value=predictionNow end) end
+				lastBridgePrediction=predictionNow
+			end
+			bridgeInitialized=true
 		end
 		local camera=workspace.CurrentCamera
 		local silentFov = FovVisuals.Silent
@@ -3897,29 +3235,13 @@ getgenv().WaveLiteACS_Config = config
 		return {
 			HookReady=silent.hooked,
 			Enabled=silent.enabled,
-			Mode="Auto",
-			Method=silent.activeMethod or "Raycast",
-			ActiveMethod=silent.activeMethod or "Raycast",
-			AutoReason=silent.autoReason,
-			AutoChanges=silent.autoChanges,
-			MethodEvidence=silent.methodEvidence,
-			LastShotSource=silent.lastShotSource,
+			ACSRouteReady=silent.useACS,
+			ACSRouteError=(acsErrorValue and acsErrorValue.Parent and acsErrorValue.Value) or acsStartupError,
+			Method=State.SilentMethod,
 			LastMethod=silent.lastMethod,
 			Observed=silent.observed,
-			TotalObserved=silent.totalObserved,
-			MethodCounts=silent.methodCounts,
-			LastDetectedMethod=silent.lastDetectedMethod,
 			Redirected=silent.redirected,
-			PrimaryHits=silent.primaryHits,
 			LastReject=silent.lastReject,
-			LastError=silent.lastError,
-			FallbackAttempts=silent.fallbackAttempts,
-			FallbackDetections=silent.fallbackDetections,
-			FallbackUsed=silent.fallbackUsed,
-			FallbackHits=silent.fallbackHits,
-			FallbackLastTarget=silent.fallbackLastTarget,
-			AcsRuntime=(function() local state=readAcsRuntime(); return state and {HookReady=state.HookReady,Calls=state.Calls,Redirected=state.Redirected,NoTarget=state.NoTarget,Rehooks=state.Rehooks,Respawns=state.Respawns,LastEvent=state.LastEvent,LastError=state.LastError} or nil end)(),
-			Diagnostics=table.concat(silent.diagnostics,"\n"),
 			Target=silent.player and silent.player.Name or nil,
 		}
 	end
@@ -3927,8 +3249,12 @@ getgenv().WaveLiteACS_Config = config
 		if parent then return end
 		silent.active=false
 		silent.enabled=false
-		if silent.acsActor and type(run_on_actor)=="function" then
-			pcall(run_on_actor,silent.acsActor,acsUpdatePayload,{Enabled=false,Method=silent.activeMethod or "Raycast"})
+		if acsActiveValue and acsActiveValue.Parent then pcall(function() acsActiveValue.Value=false end) end
+		if acsEnabledValue and acsEnabledValue.Parent then pcall(function() acsEnabledValue.Value=false end) end
+		if acsTargetValue and acsTargetValue.Parent then pcall(function() acsTargetValue.Value=nil end) end
+		if acsBridgeFolder and acsBridgeFolder.Parent then
+			local folderToDestroy=acsBridgeFolder
+			task.delay(1,function() pcall(function() folderToDestroy:Destroy() end) end)
 		end
 		if silent.toolConnection then silent.toolConnection:Disconnect() end
 		for _,c in ipairs(silent.connections) do pcall(function()c:Disconnect()end) end
@@ -4415,7 +3741,12 @@ end
 __WaveLiteSetupPlayerExtras()
 __WaveLiteSetupPlayerExtras = nil
 function __WaveLiteSetupMisc()
-	local misc={connections={},jumpDown=false,lastPickup=0,lastJump=0,promptCooldown=setmetatable({},{__mode="k"}),prompts=setmetatable({},{__mode="k"}),clicks=setmetatable({},{__mode="k"}),giverModels=setmetatable({},{__mode="k"})}
+	local misc={
+		connections={},jumpDown=false,lastPickup=0,lastJump=0,
+		promptCooldown=setmetatable({},{__mode="k"}),
+		pickupBuckets=setmetatable({},{__mode="k"}),
+		itemParts=setmetatable({},{__mode="k"}),
+	}
 	local function listen(signal,fn)
 		local c=signal:Connect(fn)
 		table.insert(misc.connections,c)
@@ -4435,8 +3766,8 @@ function __WaveLiteSetupMisc()
 		if State.Toggles.AntiSeat and hum then pcall(function() hum.Sit=false end) end
 		if refreshToggleVisual then refreshToggleVisual("AntiSeat") end
 	end
-	_G.WaveLite_AutoPickup_Toggle=function()
-		State.Toggles.AutoPickup=false
+	_G.WaveLite_AutoPickup_Toggle=function(on)
+		State.Toggles.AutoPickup=on==true
 		if refreshToggleVisual then refreshToggleVisual("AutoPickup") end
 	end
 	listen(UserInputService.InputBegan,function(input,processed)
@@ -4450,18 +3781,6 @@ function __WaveLiteSetupMisc()
 		local hum=currentHumanoid()
 		if hum and hum.Health>0 and not hum.Sit then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 	end)
-	local function registerPickup(item)
-		if item:IsA("ProximityPrompt") then misc.prompts[item]=true
-		elseif item:IsA("ClickDetector") then misc.clicks[item]=true
-		elseif item:IsA("Model") and type(item:GetAttribute("ToolName"))=="string" then misc.giverModels[item]=true end
-	end
-	for _,descendant in ipairs(workspace:GetDescendants()) do registerPickup(descendant) end
-	listen(workspace.DescendantAdded,registerPickup)
-	listen(workspace.DescendantRemoving,function(item)
-		misc.prompts[item]=nil
-		misc.clicks[item]=nil
-		misc.giverModels[item]=nil
-	end)
 	local function getGiverRemote()
 		local remotes=game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 		local remote=remotes and remotes:FindFirstChild("GiverPressed")
@@ -4471,68 +3790,155 @@ function __WaveLiteSetupMisc()
 		if model.PrimaryPart then return model.PrimaryPart end
 		return model:FindFirstChildWhichIsA("BasePart",true)
 	end
-	listen(RunService.Heartbeat,function()
-		local hum=currentHumanoid()
-		local now=os.clock()
-		if State.Toggles.InfJump and misc.jumpDown and hum and hum.Health>0 and not hum.Sit and now-misc.lastJump>=0.11 then
-			misc.lastJump=now
-			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+	local function getPickupPart(item)
+		local parent=item.Parent
+		if parent and parent:IsA("Attachment") then parent=parent.Parent end
+		if parent and parent:IsA("BasePart") then return parent end
+		if parent and parent:IsA("Model") then
+			local part=parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart",true)
+			if part then return part end
 		end
-		if State.Toggles.AntiSeat and hum and hum.Sit then pcall(function() hum.Sit=false end) end
-		if not State.Toggles.AutoPickup then return end
-		if now-misc.lastPickup<0.6 then return end
-		misc.lastPickup=now
-		local root=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-		local nearest,nearestDistance=nil,math.huge
-		for prompt in pairs(misc.prompts) do
-			if prompt.Parent and prompt.Enabled then
-				local action=(prompt.ActionText.." "..prompt.ObjectText):lower()
-				if action:find("pick",1,true) or action:find("collect",1,true) or action:find("grab",1,true) or action:find("loot",1,true) then
-					local parent=prompt.Parent
-					local pos=parent and (parent:IsA("BasePart") and parent.Position or (parent:IsA("Attachment") and parent.WorldPosition))
-					if pos then
-						local distance=(root.Position-pos).Magnitude
-						if distance<=math.min(prompt.MaxActivationDistance,12) and distance<nearestDistance and now-(misc.promptCooldown[prompt] or 0)>1.5 then
-							nearest,nearestDistance=prompt,distance
-						end
-					end
+		return item:FindFirstAncestorWhichIsA("BasePart")
+	end
+	local function registerPickup(item)
+		if misc.itemParts[item] then return end
+		local kind
+		if item:IsA("ProximityPrompt") then kind="prompt"
+		elseif item:IsA("ClickDetector") then kind="click"
+		elseif item:IsA("Model") and type(item:GetAttribute("ToolName"))=="string" then kind="giver" end
+		if kind then
+			local part=kind=="giver" and getGiverPart(item) or getPickupPart(item)
+			if part and part:IsA("BasePart") then
+				local bucket=misc.pickupBuckets[part]
+				if not bucket then
+					bucket={prompts={},clicks={},givers={}}
+					misc.pickupBuckets[part]=bucket
 				end
+				if kind=="prompt" then bucket.prompts[item]=true
+				elseif kind=="click" then bucket.clicks[item]=true
+				else bucket.givers[item]=true end
+				misc.itemParts[item]={part=part,kind=kind}
+				return
 			end
 		end
-		if type(fireclickdetector)=="function" then
-			for detector in pairs(misc.clicks) do
-				if detector.Parent and detector:IsDescendantOf(workspace) then
-					local parent=detector.Parent
-					local part=parent:IsA("BasePart") and parent or (parent:IsA("Model") and (parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart",true)))
-					if part and not part:FindFirstAncestorOfClass("Accessory") then
-						local char=part:FindFirstAncestorOfClass("Model")
-						local belongsToPlayer=char and Players:GetPlayerFromCharacter(char)~=nil
-						if not belongsToPlayer then
-							local distance=(root.Position-part.Position).Magnitude
-							if distance<=math.min(detector.MaxActivationDistance,12) and distance<nearestDistance and now-(misc.promptCooldown[detector] or 0)>2 then
-								nearest,nearestDistance=detector,distance
+		-- Giver models can replicate before their BasePart exists. Re-check tagged
+		-- ancestors as descendants arrive so those models are not missed.
+		local ancestor=item:FindFirstAncestorOfClass("Model")
+		while ancestor do
+			if type(ancestor:GetAttribute("ToolName"))=="string" then
+				registerPickup(ancestor)
+				break
+			end
+			local parent=ancestor.Parent
+			ancestor=parent and parent:FindFirstAncestorOfClass("Model")
+		end
+	end
+	local function unregisterPickup(item)
+		local entry=misc.itemParts[item]
+		if entry then
+			local bucket=misc.pickupBuckets[entry.part]
+			if bucket then
+				if entry.kind=="prompt" then bucket.prompts[item]=nil
+				elseif entry.kind=="click" then bucket.clicks[item]=nil
+				else bucket.givers[item]=nil end
+				if not next(bucket.prompts) and not next(bucket.clicks) and not next(bucket.givers) then
+					misc.pickupBuckets[entry.part]=nil
+				end
+			end
+			misc.itemParts[item]=nil
+		end
+		if item:IsA("BasePart") then misc.pickupBuckets[item]=nil end
+	end
+	listen(workspace.DescendantAdded,registerPickup)
+	listen(workspace.DescendantRemoving,unregisterPickup)
+	task.spawn(function()
+		local descendants=workspace:GetDescendants()
+		for index,item in ipairs(descendants) do
+			if not ScreenGui.Parent then break end
+			registerPickup(item)
+			if index%250==0 then task.wait() end
+		end
+	end)
+	local overlapParams
+	pcall(function()
+		overlapParams=OverlapParams.new()
+		overlapParams.FilterType=Enum.RaycastFilterType.Exclude
+	end)
+	local function scanNearby(root,now)
+		if overlapParams then
+			pcall(function()
+				overlapParams.FilterDescendantsInstances=LocalPlayer.Character and {LocalPlayer.Character} or {}
+			end)
+		end
+		local ok,nearbyParts=pcall(function()
+			if overlapParams then return workspace:GetPartBoundsInRadius(root.Position,12,overlapParams) end
+			return workspace:GetPartBoundsInRadius(root.Position,12)
+		end)
+		if not ok or type(nearbyParts)~="table" then return end
+		local nearest,nearestDistanceSquared=nil,math.huge
+		local fireClick=type(fireclickdetector)=="function"
+		local backpack=LocalPlayer:FindFirstChildOfClass("Backpack")
+		local character=LocalPlayer.Character
+		local giverRemote
+		for _,part in ipairs(nearbyParts) do
+			local bucket=misc.pickupBuckets[part]
+			if bucket then
+				for prompt in pairs(bucket.prompts) do
+					if prompt.Parent and prompt.Enabled then
+						local action=(prompt.ActionText.." "..prompt.ObjectText):lower()
+						if action:find("pick",1,true) or action:find("collect",1,true) or action:find("grab",1,true) or action:find("loot",1,true) then
+							local promptParent=prompt.Parent
+							local position=promptParent:IsA("Attachment") and promptParent.WorldPosition or part.Position
+							local offset=root.Position-position
+							local distanceSquared=offset:Dot(offset)
+							local maxDistance=math.min(prompt.MaxActivationDistance,12)
+							if distanceSquared<=maxDistance*maxDistance and distanceSquared<nearestDistanceSquared
+								and now-(misc.promptCooldown[prompt] or 0)>1.5 then
+								nearest,nearestDistanceSquared=prompt,distanceSquared
 							end
 						end
 					end
 				end
-			end
-		end
-		local giverRemote=getGiverRemote()
-		if giverRemote then
-			local backpack=LocalPlayer:FindFirstChildOfClass("Backpack")
-			local character=LocalPlayer.Character
-			for model in pairs(misc.giverModels) do
-				if model.Parent and model:IsDescendantOf(workspace) then
-					local toolName=model:GetAttribute("ToolName")
-					local part=getGiverPart(model)
-					if type(toolName)=="string" and toolName~="" and part
-						and not (backpack and backpack:FindFirstChild(toolName))
-						and not (character and character:FindFirstChild(toolName))
-						and (root.Position-part.Position).Magnitude<=12
-						and now-(misc.promptCooldown[model] or 0)>=1.5 then
-						misc.promptCooldown[model]=now
-						pcall(function() giverRemote:FireServer(model) end)
+				if fireClick then
+					for detector in pairs(bucket.clicks) do
+						if detector.Parent and detector:IsDescendantOf(workspace) then
+							local parent=detector.Parent
+							local targetPart=parent:IsA("BasePart") and parent or (parent:IsA("Model") and (parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart",true)))
+							if targetPart and not targetPart:FindFirstAncestorOfClass("Accessory") then
+								local model=targetPart:FindFirstAncestorOfClass("Model")
+								local belongsToPlayer=model and Players:GetPlayerFromCharacter(model)~=nil
+								if not belongsToPlayer then
+									local offset=root.Position-targetPart.Position
+									local distanceSquared=offset:Dot(offset)
+									local maxDistance=math.min(detector.MaxActivationDistance,12)
+									if distanceSquared<=maxDistance*maxDistance and distanceSquared<nearestDistanceSquared
+										and now-(misc.promptCooldown[detector] or 0)>2 then
+										nearest,nearestDistanceSquared=detector,distanceSquared
+									end
+								end
+							end
+						end
+					end
+				end
+				if next(bucket.givers) then
+					if not giverRemote then giverRemote=getGiverRemote() end
+					if giverRemote then
+						for model in pairs(bucket.givers) do
+							if model.Parent and model:IsDescendantOf(workspace) then
+								local toolName=model:GetAttribute("ToolName")
+								local giverPart=getGiverPart(model)
+								if type(toolName)=="string" and toolName~="" and giverPart
+									and not (backpack and backpack:FindFirstChild(toolName))
+									and not (character and character:FindFirstChild(toolName)) then
+										local offset=root.Position-giverPart.Position
+										local distanceSquared=offset:Dot(offset)
+										if distanceSquared<=144 and now-(misc.promptCooldown[model] or 0)>=1.5 then
+											 misc.promptCooldown[model]=now
+											 pcall(function() giverRemote:FireServer(model) end)
+										end
+									end
+							end
+						end
 					end
 				end
 			end
@@ -4546,6 +3952,20 @@ function __WaveLiteSetupMisc()
 				pcall(fireclickdetector,nearest)
 			end
 		end
+	end
+	listen(RunService.Heartbeat,function()
+		local hum=currentHumanoid()
+		local now=os.clock()
+		if State.Toggles.InfJump and misc.jumpDown and hum and hum.Health>0 and not hum.Sit and now-misc.lastJump>=0.11 then
+			misc.lastJump=now
+			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+		if State.Toggles.AntiSeat and hum and hum.Sit then pcall(function() hum.Sit=false end) end
+		if not State.Toggles.AutoPickup then return end
+		if now-misc.lastPickup<0.6 then return end
+		misc.lastPickup=now
+		local root=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if root then scanNearby(root,now) end
 	end)
 	listen(ScreenGui.AncestryChanged,function(_,parent)
 		if parent then return end
@@ -4556,7 +3976,7 @@ function __WaveLiteSetupMisc()
 	end)
 end
 __WaveLiteSetupMisc()
-__WaveLiteSetupMisc=nil
+__WaveLiteSetupMisc = nil
 function refreshToggleVisual(stateName)
 	for _, tg in ipairs(themedToggles) do
 		if tg.stateName == stateName then
@@ -4824,13 +4244,12 @@ function __WaveLiteSetupEsp()
 
 	local renderName = "Wave1.5 ESP Drawing"
 	local espObjects = {}
-	local friendCache = {}
 	local trackedPlayers = {}
 	local running = false
 	local updateAccumulator = 0
 	local geometryOutlineThickness = 1.8
 	local geometryThickness = 1
-	local textFont = 1
+	local textFont = 1 -- System
 	local friendColor = Color3.fromRGB(255, 255, 0)
 	local friendIndicatorAssetId = 72047062472203
 	local friendIndicatorImage = "rbxassetid://" .. tostring(friendIndicatorAssetId)
@@ -4993,7 +4412,7 @@ function __WaveLiteSetupEsp()
 			object.characterHighlight = nil
 		end
 		espObjects[player] = nil
-		friendCache[player] = nil
+		FriendChecks.cache[player] = nil
 	end
 
 	local function createEntry(player)
@@ -5001,7 +4420,6 @@ function __WaveLiteSetupEsp()
 			name = makeText(15, true),
 			distance = makeText(9, true),
 			itemText = makeText(11, false),
-			teamText = makeText(11, false),
 
 			box2D = makeSquare(3),
 			box2DOutline = makeSquare(2),
@@ -5068,6 +4486,8 @@ function __WaveLiteSetupEsp()
 		return boundsCFrame, boundsSize
 	end
 
+	-- Build the skeleton links once when a character is first seen. The render loop
+	-- only projects these cached part references; it never rescans GetDescendants().
 	local function buildSkeletonPairs(character)
 		local byName = {}
 		for _, part in ipairs(character:GetDescendants()) do
@@ -5311,24 +4731,9 @@ function __WaveLiteSetupEsp()
 		end
 	end
 
-	local function refreshFriend(player)
-		if friendCache[player] ~= nil then return end
-		friendCache[player] = false
-		task.spawn(function()
-			local ok, result = pcall(function()
-				return LocalPlayer:IsFriendsWith(player.UserId)
-			end)
-			if ok then friendCache[player] = result end
-		end)
-	end
-
-	local function isFriend(player)
-		return friendCache[player] == true
-	end
-
 	local function anyEspOn()
 		local toggles = State.Toggles
-		return toggles.NameEsp or toggles.Tracers or toggles.FriendEsp or toggles.TeamIndicator or toggles.Skeleton
+		return toggles.NameEsp or toggles.Tracers or toggles.FriendEsp or toggles.Skeleton
 			or toggles.Outlines or toggles.BoxOutline or toggles.BoxCorners or toggles.Box3D
 			or toggles.Box3DCorners or toggles.HealthBars or toggles.Distance or toggles.ShowItems
 	end
@@ -5337,6 +4742,7 @@ function __WaveLiteSetupEsp()
 		local drawings = object.drawings
 		local ratio = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
 
+		-- Both axes follow the projected box. No fixed 16px minimum at long range.
 		local barHeight = math.max(1, boxHeight)
 		local border = math.clamp(barHeight * 0.01, 0.35, 0.85)
 		local trackWidth = math.clamp(barHeight * 0.028, 0.6, 2.3)
@@ -5366,7 +4772,6 @@ function __WaveLiteSetupEsp()
 		local drawings = object.drawings
 		local high = friendOn and 1000 or nil
 		setDrawingZIndex(drawings.name, high or 4)
-		setDrawingZIndex(drawings.teamText, high or 4)
 		setDrawingZIndex(drawings.box2D, high or 3)
 		setDrawingZIndex(drawings.box2DOutline, high or 2)
 		setDrawingZIndex(drawings.tracer, high or 3)
@@ -5463,6 +4868,10 @@ function __WaveLiteSetupEsp()
 	end
 
 	local function updateEntry(player, object, camera, localRoot, viewport)
+		if State.Toggles.EspTeamCheck and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then
+			hideEntry(object)
+			return
+		end
 		local character = getEspCharacter(player)
 		if not character then
 			hideEntry(object)
@@ -5506,10 +4915,10 @@ function __WaveLiteSetupEsp()
 		end
 
 		local boundsCFrame, boundsSize = getCharacterBounds(character)
-		local friendOn = State.Toggles.FriendEsp and isFriend(player)
+		local friendOn = State.Toggles.FriendEsp and FriendChecks.isFriend(player)
 		local white = Color3.fromRGB(255, 255, 255)
 		local playerColor = friendOn and friendColor or white
-
+		-- World-space indicators stay independent of screen-space projection.
 		updateFriendMarker(object, root, boundsCFrame, boundsSize, friendOn)
 		updateCharacterOutline(object, character, playerColor, State.Toggles.Outlines)
 		if not boundsCFrame or not boundsSize then
@@ -5649,16 +5058,6 @@ function __WaveLiteSetupEsp()
 			setVisible(object.drawings.itemText, false)
 		end
 
-		if State.Toggles.TeamIndicator then
-			local team = player.Team
-			local teamName = team and team.Name or "Neutral"
-			local teamColor = team and team.TeamColor.Color or white
-			setText(object.drawings.teamText, teamName,
-				Vector2.new(boxRight + 7, sideTextY), teamColor, 11, false)
-		else
-			setVisible(object.drawings.teamText, false)
-		end
-
 		if State.Toggles.HealthBars and humanoid then
 			updateHealthBar(object, boxX, boxY, boxHeight, humanoid)
 		else
@@ -5679,7 +5078,7 @@ function __WaveLiteSetupEsp()
 			if updateAccumulator + 0.000001 < interval then return end
 			updateAccumulator %= interval
 		else
-
+			-- Auto = one update per rendered Roblox frame. The selected label remains Auto.
 			updateAccumulator = 0
 		end
 
@@ -5702,7 +5101,7 @@ function __WaveLiteSetupEsp()
 		for index = 1, #trackedPlayers do
 			local player = trackedPlayers[index]
 			if player and player.Parent == Players then
-				if State.Toggles.FriendEsp then refreshFriend(player) end
+				if State.Toggles.FriendEsp then FriendChecks.refresh(player) end
 				local object = espObjects[player] or createEntry(player)
 				local ok = pcall(updateEntry, player, object, camera, localRoot, viewport)
 				if not ok then hideEntry(object) end
@@ -5720,7 +5119,7 @@ function __WaveLiteSetupEsp()
 			updateAccumulator = 0
 			pcall(function() RunService:UnbindFromRenderStep(renderName) end)
 			RunService:BindToRenderStep(renderName, Enum.RenderPriority.Last.Value + 1, function(deltaTime)
-
+				-- Keep screen-space ESP in sync with every Camlock camera adjustment.
 				updateEspFrame(deltaTime, camLockActive)
 			end)
 			updateEspFrame(0, true)
@@ -5741,7 +5140,7 @@ function __WaveLiteSetupEsp()
 	_G.WaveLite_NameEsp_Toggle = function(on) setEspToggle("NameEsp", on) end
 	_G.WaveLite_Tracers_Toggle = function(on) setEspToggle("Tracers", on) end
 	_G.WaveLite_FriendEsp_Toggle = function(on) setEspToggle("FriendEsp", on) end
-	_G.WaveLite_TeamIndicator_Toggle = function(on) setEspToggle("TeamIndicator", on) end
+	_G.WaveLite_EspTeamCheck_Toggle = function(on) setEspToggle("EspTeamCheck", on) end
 	_G.WaveLite_Skeleton_Toggle = function(on) setEspToggle("Skeleton", on) end
 	_G.WaveLite_Outlines_Toggle = function(on) setEspToggle("Outlines", on) end
 	_G.WaveLite_BoxOutline_Toggle = function(on) setEspToggle("BoxOutline", on) end
@@ -5761,7 +5160,7 @@ function __WaveLiteSetupEsp()
 	local playerAddedConnection = Players.PlayerAdded:Connect(function(player)
 		if player ~= LocalPlayer then
 			trackedPlayers[#trackedPlayers + 1] = player
-			friendCache[player] = nil
+			FriendChecks.cache[player] = nil
 		end
 	end)
 
@@ -5794,11 +5193,13 @@ end
 __WaveLiteSetupEsp()
 __WaveLiteSetupEsp = nil
 
+-- Bridge the new UI switches to the existing feature routines. TargetUI is intentionally not connected.
 local FeatureToggleCallbacks = {
 	Camlock = "WaveLite_CamLock_Toggle", Silent = "WaveLite_Silent_Toggle",
 	Fly = "WaveLite_Fly_Toggle", Noclip = "WaveLite_Noclip_Toggle",
 	NameEsp = "WaveLite_NameEsp_Toggle", Tracers = "WaveLite_Tracers_Toggle",
-	FriendEsp = "WaveLite_FriendEsp_Toggle", TeamIndicator = "WaveLite_TeamIndicator_Toggle",
+	FriendEsp = "WaveLite_FriendEsp_Toggle", EspTeamCheck = "WaveLite_EspTeamCheck_Toggle",
+	AutoPickup = "WaveLite_AutoPickup_Toggle",
 	Skeleton = "WaveLite_Skeleton_Toggle",
 	Outlines = "WaveLite_Outlines_Toggle", BoxOutline = "WaveLite_BoxOutline_Toggle",
 	Box3D = "WaveLite_Box3D_Toggle", BoxCorners = "WaveLite_BoxCorners_Toggle",
@@ -5816,7 +5217,9 @@ for stateName, globalName in pairs(FeatureToggleCallbacks) do
 		if type(callback) == "function" then callback(on) end
 	end
 end
+-- TargetUI, AutoLoad, and config persistence intentionally have no callbacks in this build.
 
+------------------------------------------------------------------ dragging / input
 local dragging, dragStart, startPos = false, nil, nil
 Header.InputBegan:Connect(function(input)
 	if waitingForKey then return end
@@ -5899,6 +5302,7 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
 	end
 end))
 
+------------------------------------------------------------------ init
 applyTheme("dark")
 syncLogoVisibility()
 syncBlurButton()
@@ -5906,6 +5310,7 @@ applyArrayPosition()
 refreshArrayList()
 BlurController.RefreshGlass()
 
+-- The menu starts with the default Daydream backdrop; no settings or config files are read or written.
 setThemePreset(State.Theme)
 setBackdropPreset(State.Preset)
 if setCombatType then setCombatType(State.CombatType) end
